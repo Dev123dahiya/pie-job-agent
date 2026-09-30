@@ -1,0 +1,22 @@
+# Local infrastructure. Phase 1 only needs PostgreSQL; the backend and dashboard run
+# on the host (see README). Values come from .env.
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pie}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pie}
+      POSTGRES_DB: ${POSTGRES_DB:-pie_job_agent}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pie_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pie} -d ${POSTGRES_DB:-pie_job_agent}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pie_pgdata:

@@ -1,0 +1,483 @@
+"""Playwright browser service.
+
+Playwright's sync API is bound to the thread that started it, while PIE's work arrives from
+API worker threads and the agent thread. So one dedicated thread owns Playwright and every
+live page; callers submit FIXED operations (open, snapshot, fill, upload, click submit,
+screenshot, close) and wait for the result. There is no operation that runs caller-supplied
+JavaScript, selectors or shell commands: fields are addressed only by the ids PIE assigned
+during extraction (see dom.py).
+
+Dry-run safety net: a DRY_RUN session aborts every non-GET/HEAD/OPTIONS request the page
+makes, so even an accidental click cannot send a form or upload a file to the employer.
+"""
+
+import contextlib
+import logging
+import queue
+import threading
+from collections.abc import Callable
+from concurrent.futures import Future
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, TypeVar
+
+from integrations.browser.dom import COMBOBOX_VALUE, EXTRACT_FORM
+from integrations.browser.signals import domain_of, redact_url
+
+logger = logging.getLogger(__name__)
+T = TypeVar("T")
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+class BrowserError(RuntimeError):
+    """A browser operation failed (navigation, timeout, crash, missing element...)."""
+
+    def __init__(self, kind: str, message: str) -> None:
+        super().__init__(message)
+        self.kind = kind  # NAVIGATION | TIMEOUT | CRASHED | NOT_FOUND | UPLOAD | UNAVAILABLE
+
+
+@dataclass
+class Snapshot:
+    url: str
+    title: str
+    http_status: int | None
+    fields: list[dict[str, Any]]
+    submit_buttons: list[dict[str, Any]]
+    apply_buttons: list[dict[str, Any]]
+    signals: dict[str, Any]
+    blocked_requests: list[dict[str, str]] = field(default_factory=list)
+
+    @property
+    def domain(self) -> str:
+        return domain_of(self.url)
+
+
+@dataclass
+class UploadResult:
+    names: list[str]
+    blocked_requests: int  # non-GET requests the dry-run guard aborted during the upload
+
+
+@dataclass
+class _Live:
+    context: Any
+    page: Any
+    dry_run: bool
+    owns_context: bool
+    http_status: int | None = None
+    blocked: list[dict[str, str]] = field(default_factory=list)
+
+
+class BrowserManager:
+    def __init__(
+        self,
+        *,
+        channel: str = "auto",
+        headless: bool = True,
+        timeout_ms: int = 30_000,
+        user_data_dir: Path | None = None,
+    ) -> None:
+        self.channel = channel
+        self.headless = headless
+        self.timeout_ms = timeout_ms
+        self.user_data_dir = user_data_dir
+        self._queue: queue.Queue[tuple[Callable[[], Any], Future[Any]] | None] = queue.Queue()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+        # Thread-confined state (only touched on the browser thread):
+        self._pw: Any = None
+        self._browser: Any = None
+        self._persistent: Any = None
+        self._live: dict[str, _Live] = {}
+
+    # --- thread plumbing ---
+
+    def _ensure_thread(self) -> None:
+        with self._lock:
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._loop, name="pie-browser", daemon=True)
+                self._thread.start()
+
+    def _loop(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is None:
+                break
+            fn, fut = item
+            if not fut.set_running_or_notify_cancel():
+                continue
+            try:
+                fut.set_result(fn())
+            except BrowserError as exc:
+                fut.set_exception(exc)
+            except Exception as exc:  # a Playwright error: a structured browser failure
+                kind = "TIMEOUT" if "Timeout" in type(exc).__name__ else "BROWSER"
+                fut.set_exception(BrowserError(kind, f"{type(exc).__name__}: {exc}"[:500]))
+            except BaseException as exc:  # delivered to the caller
+                fut.set_exception(exc)
+        self._teardown()
+
+    def _call(self, fn: Callable[[], T], timeout: float | None = None) -> T:
+        self._ensure_thread()
+        fut: Future[T] = Future()
+        self._queue.put((fn, fut))
+        return fut.result(timeout=timeout or (self.timeout_ms / 1000) * 4 + 30)
+
+    def shutdown(self) -> None:
+        if self._thread and self._thread.is_alive():
+            self._queue.put(None)
+            self._thread.join(timeout=30)
+
+    # --- browser-thread internals ---
+
+    def _launch(self) -> None:
+        if self._browser is not None or self._persistent is not None:
+            return
+        from playwright.sync_api import sync_playwright
+
+        self._pw = sync_playwright().start()
+        chromium = self._pw.chromium
+        channels = [None, "msedge", "chrome"] if self.channel == "auto" else [self.channel]
+        last: Exception | None = None
+        for ch in channels:
+            kwargs: dict[str, Any] = {"headless": self.headless}
+            if ch:
+                kwargs["channel"] = ch
+            try:
+                if self.user_data_dir:
+                    self._persistent = chromium.launch_persistent_context(
+                        str(self.user_data_dir), **kwargs
+                    )
+                else:
+                    self._browser = chromium.launch(**kwargs)
+                return
+            except Exception as exc:  # try the next installed browser
+                last = exc
+        raise BrowserError("UNAVAILABLE", f"No usable browser could be launched: {last}")
+
+    def _teardown(self) -> None:
+        for sid in list(self._live):
+            self._close_live(sid)
+        for obj in (self._persistent, self._browser):
+            try:
+                if obj is not None:
+                    obj.close()
+            except Exception:
+                logger.debug("browser close failed", exc_info=True)
+        if self._pw is not None:
+            try:
+                self._pw.stop()
+            except Exception:
+                logger.debug("playwright stop failed", exc_info=True)
+        self._pw = self._browser = self._persistent = None
+
+    def _close_live(self, sid: str) -> None:
+        live = self._live.pop(sid, None)
+        if live is None:
+            return
+        try:
+            if live.owns_context:
+                live.context.close()
+            else:
+                live.page.close()
+        except Exception:
+            logger.debug("context close failed", exc_info=True)
+
+    def _get(self, sid: str) -> _Live:
+        live = self._live.get(sid)
+        if live is None or live.page.is_closed():
+            raise BrowserError("CRASHED", "The browser page for this session is gone")
+        return live
+
+    def _snapshot(self, live: _Live) -> Snapshot:
+        page = live.page
+        fields: list[dict[str, Any]] = []
+        submits: list[dict[str, Any]] = []
+        applies: list[dict[str, Any]] = []
+        signals: dict[str, Any] = {
+            "iframes": [],
+            "captcha_elements": 0,
+            "password_inputs": 0,
+            "otp_inputs": 0,
+            "text": "",
+        }
+        for index, frame in enumerate(page.frames):
+            try:
+                data = frame.evaluate(EXTRACT_FORM, f"f{index}_")
+            except Exception:  # cross-origin frame that is not ready, detached frame...
+                continue
+            for item in data["fields"]:
+                item["frame"] = index
+            fields += data["fields"]
+            submits += [{**b, "frame": index} for b in data["submit_buttons"]]
+            applies += [{**b, "frame": index} for b in data["apply_buttons"]]
+            s = data["signals"]
+            signals["iframes"] += s["iframes"]
+            for k in ("captcha_elements", "password_inputs", "otp_inputs"):
+                signals[k] += s[k]
+            signals["text"] = (signals["text"] + "\n" + s["text"])[:40000]
+        return Snapshot(
+            url=redact_url(page.url) or "",
+            title=(page.title() or "")[:500],
+            http_status=live.http_status,
+            fields=fields,
+            submit_buttons=submits,
+            apply_buttons=applies,
+            signals=signals,
+            blocked_requests=list(live.blocked),
+        )
+
+    def _frame(self, live: _Live, element_id: str) -> Any:
+        try:
+            index = int(element_id.split("_", 1)[0].lstrip("f"))
+            return live.page.frames[index]
+        except (ValueError, IndexError) as exc:
+            raise BrowserError("NOT_FOUND", f"Unknown element id {element_id!r}") from exc
+
+    # --- public operations (each runs on the browser thread) ---
+
+    def open(self, sid: str, url: str, *, dry_run: bool) -> Snapshot:
+        def op() -> Snapshot:
+            self._launch()
+            self._close_live(sid)
+            if self._persistent is not None:
+                context, owns = self._persistent, False
+                page = context.new_page()
+            else:
+                context, owns = self._browser.new_context(accept_downloads=False), True
+                page = context.new_page()
+            page.set_default_timeout(self.timeout_ms)
+            live = _Live(context=context, page=page, dry_run=dry_run, owns_context=owns)
+            if dry_run:
+                page.route("**/*", lambda route: self._guard(live, route))
+            self._live[sid] = live
+            last: Exception | None = None
+            for _ in range(2):  # navigation is a safe read: one retry
+                try:
+                    response = page.goto(url, wait_until="domcontentloaded")
+                    live.http_status = response.status if response else None
+                    self._settle(page)
+                    return self._snapshot(live)
+                except Exception as exc:
+                    last = exc
+            kind = "TIMEOUT" if "Timeout" in type(last).__name__ else "NAVIGATION"
+            raise BrowserError(kind, f"Could not load {redact_url(url)}: {last}")
+
+        return self._call(op)
+
+    def _guard(self, live: _Live, route: Any) -> None:
+        request = route.request
+        if request.method.upper() in SAFE_METHODS:
+            route.continue_()
+            return
+        live.blocked.append({"method": request.method, "domain": domain_of(request.url)})
+        route.abort()
+
+    @staticmethod
+    def _settle(page: Any) -> None:
+        # Long-polling pages never go idle; the DOM is loaded already.
+        with contextlib.suppress(Exception):
+            page.wait_for_load_state("networkidle", timeout=5_000)
+
+    def is_alive(self, sid: str) -> bool:
+        def op() -> bool:
+            live = self._live.get(sid)
+            return live is not None and not live.page.is_closed()
+
+        return self._call(op)
+
+    def snapshot(self, sid: str) -> Snapshot:
+        return self._call(lambda: self._snapshot(self._get(sid)))
+
+    def click_apply(self, sid: str, apply_id: str) -> Snapshot:
+        """Click an 'Apply' link/button to reveal the application form (a navigation)."""
+
+        def op() -> Snapshot:
+            live = self._get(sid)
+            loc = self._frame(live, apply_id).locator(f'[data-pie-apply="{apply_id}"]')
+            if loc.count() != 1:
+                raise BrowserError("NOT_FOUND", "Apply button not found")
+            loc.click()
+            self._settle(live.page)
+            return self._snapshot(live)
+
+        return self._call(op)
+
+    def fill(
+        self, sid: str, field_id: str, kind: str, value: str | None, option: int | None
+    ) -> bool:
+        """Set one field and read it back. Returns whether the page now holds the value."""
+
+        def op() -> bool:
+            live = self._get(sid)
+            frame = self._frame(live, field_id)
+            if kind in ("radio", "checkbox_group"):
+                target = frame.locator(f'[data-pie-field="{field_id}"][data-pie-option="{option}"]')
+                if target.count() != 1:
+                    raise BrowserError("NOT_FOUND", f"Option {option} of {field_id} not found")
+                target.check()
+                return bool(target.is_checked())
+            loc = frame.locator(f'[data-pie-field="{field_id}"]')
+            if loc.count() != 1:
+                raise BrowserError("NOT_FOUND", f"Field {field_id} not found")
+            if kind == "select":
+                values = loc.evaluate("(el) => Array.from(el.options).map((o) => o.value)")
+                loc.select_option(value=values[option or 0])
+                return bool(loc.input_value() == values[option or 0])
+            if kind == "checkbox":
+                loc.set_checked(value == "true")
+                return bool(loc.is_checked()) == (value == "true")
+            loc.fill(value or "")
+            loc.dispatch_event("change")
+            loc.evaluate("(el) => el.blur()")
+            return bool(loc.input_value() == (value or ""))
+
+        return self._call(op)
+
+    def upload(self, sid: str, field_id: str, path: Path) -> UploadResult:
+        """Set the file on the input and report what happened: the file names the input now
+        holds and how many requests the dry-run guard blocked while the page reacted."""
+
+        def op() -> UploadResult:
+            live = self._get(sid)
+            loc = self._frame(live, field_id).locator(f'[data-pie-field="{field_id}"]')
+            if loc.count() != 1:
+                raise BrowserError("NOT_FOUND", f"File field {field_id} not found")
+            blocked_before = len(live.blocked)
+            try:
+                loc.set_input_files(str(path))
+            except Exception as exc:
+                raise BrowserError("UPLOAD", f"Upload failed: {exc}") from exc
+            live.page.wait_for_timeout(800)  # let the page's own upload handler (if any) run
+            names: list[str] = loc.evaluate("(el) => Array.from(el.files).map((f) => f.name)")
+            return UploadResult(names=names, blocked_requests=len(live.blocked) - blocked_before)
+
+        return self._call(op)
+
+    # --- custom dropdowns (react-select style comboboxes) ---
+
+    @staticmethod
+    def _listbox(frame: Any, loc: Any) -> Any:
+        controls = loc.get_attribute("aria-controls") or loc.get_attribute("aria-owns")
+        if controls:
+            return frame.locator(f"id={controls}")
+        return frame.locator("[role=listbox]").first
+
+    def combobox_options(self, sid: str, field_id: str, search: str | None) -> dict[str, Any]:
+        """Open the dropdown (typing ``search`` if it is searchable) and list its options."""
+
+        def op() -> dict[str, Any]:
+            live = self._get(sid)
+            frame = self._frame(live, field_id)
+            loc = frame.locator(f'[data-pie-field="{field_id}"]')
+            if loc.count() != 1:
+                raise BrowserError("NOT_FOUND", f"Dropdown {field_id} not found")
+            selected = str(loc.evaluate(COMBOBOX_VALUE))
+            loc.click()
+            if (loc.get_attribute("aria-expanded") or "") != "true":
+                with contextlib.suppress(Exception):
+                    loc.press("ArrowDown")
+            if search and loc.is_editable():  # only searchable dropdowns accept typing
+                loc.fill(search)
+            live.page.wait_for_timeout(300)
+            box = self._listbox(frame, loc)
+            options: list[str] = []
+            if box.count():
+                options = [t.strip() for t in box.locator("[role=option]").all_inner_texts()]
+            return {"options": options, "selected": selected,
+                    "expanded": loc.get_attribute("aria-expanded") == "true"}  # fmt: skip
+
+        return self._call(op)
+
+    def combobox_select(self, sid: str, field_id: str, index: int, expected: str) -> str:
+        """Click option ``index`` (only if it still reads ``expected``); return the label the
+        dropdown now shows, so the caller can verify the selection actually took effect."""
+
+        def op() -> str:
+            live = self._get(sid)
+            frame = self._frame(live, field_id)
+            loc = frame.locator(f'[data-pie-field="{field_id}"]')
+            option = self._listbox(frame, loc).locator("[role=option]").nth(index)
+            if option.count() != 1 or " ".join(option.inner_text().split()) != " ".join(
+                expected.split()
+            ):
+                raise BrowserError("NOT_FOUND", "The dropdown options changed; nothing selected")
+            option.click()
+            live.page.wait_for_timeout(200)
+            return str(loc.evaluate(COMBOBOX_VALUE))
+
+        return self._call(op)
+
+    def combobox_close(self, sid: str, field_id: str) -> None:
+        def op() -> None:
+            live = self._get(sid)
+            loc = self._frame(live, field_id).locator(f'[data-pie-field="{field_id}"]')
+            with contextlib.suppress(Exception):
+                loc.press("Escape")
+
+        self._call(op)
+
+    def click_submit(self, sid: str, submit_id: str) -> Snapshot:
+        """The ONE irreversible operation. Refused outright for dry-run sessions."""
+
+        def op() -> Snapshot:
+            live = self._get(sid)
+            if live.dry_run:
+                raise BrowserError("NOT_FOUND", "Dry-run sessions can never submit")
+            loc = self._frame(live, submit_id).locator(f'[data-pie-submit="{submit_id}"]')
+            if loc.count() != 1:
+                raise BrowserError("NOT_FOUND", "Submit button not found")
+            responses: list[int] = []
+            live.page.on(
+                "response",
+                lambda r: responses.append(r.status) if r.request.is_navigation_request() else None,
+            )
+            loc.click()
+            self._settle(live.page)
+            if responses:
+                live.http_status = responses[-1]
+            return self._snapshot(live)
+
+        return self._call(op)
+
+    def screenshot(self, sid: str, path: Path) -> Path:
+        """Full-page screenshot; password and one-time-code inputs are masked."""
+
+        def op() -> Path:
+            live = self._get(sid)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            page = live.page
+            mask = [
+                page.locator("input[type=password]"),
+                page.locator('input[autocomplete="one-time-code"]'),
+            ]
+            page.screenshot(path=str(path), full_page=True, mask=mask)
+            return path
+
+        return self._call(op)
+
+    def close(self, sid: str) -> None:
+        self._call(lambda: self._close_live(sid))
+
+    def crash_for_test(self, sid: str) -> None:
+        """Test hook: simulate a browser crash by closing the page underneath the session."""
+        self._call(lambda: self._live[sid].page.close() if sid in self._live else None)
+
+
+_default: BrowserManager | None = None
+_default_lock = threading.Lock()
+
+
+def get_browser_manager(settings: Any) -> BrowserManager:
+    """Process-wide manager configured from Settings."""
+    global _default
+    with _default_lock:
+        if _default is None:
+            _default = BrowserManager(
+                channel=settings.browser_channel,
+                headless=settings.browser_headless,
+                timeout_ms=settings.browser_timeout_ms,
+                user_data_dir=settings.browser_user_data_dir,
+            )
+        return _default

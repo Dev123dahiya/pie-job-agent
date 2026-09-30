@@ -1,0 +1,64 @@
+[project]
+name = "pie-job-agent"
+version = "0.1.0"
+description = "PIE (Personal Intelligence Engine) - Job Agent module"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic[email]>=2.9",
+    "pydantic-settings>=2.5",
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+    "pyyaml>=6.0",
+    "tzdata>=2024.1",  # IANA zones for zoneinfo on Windows
+    "httpx2>=2.0",
+    "anthropic>=1.0",
+    "pypdf>=5.0",  # read-only text extraction from the master resume
+    "playwright>=1.50",  # browser execution of applications (Phase 5)
+    "fpdf2>=2.8",  # PDF artifacts for tailored resume versions
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "types-PyYAML",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["backend*", "database*", "agent*", "browser*", "integrations*"]
+
+[tool.setuptools.package-data]
+integrations = ["job_sources/fixtures/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["dashboard"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"database/migrations/versions/*" = ["E501"]
+"tests/conftest.py" = ["E501"]  # fictional resume/profile fixture text
+"integrations/browser/dom.py" = ["E501"]  # a JavaScript source string
+"tests/fixtures/apply_site.py" = ["E501"]  # HTML/JS fixture markup
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["backend", "database"]
+ignore_missing_imports = true
+plugins = []

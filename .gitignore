@@ -1,0 +1,57 @@
+# --- Secrets & personal data (never commit) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+token*.json
+client_secret*.json
+*cookies*
+*.session
+storage_state*.json
+config/user_profile.yaml
+config/*.local.yaml
+
+# Personal resumes and everything the app writes: logs, backups, screenshots, exports,
+# the SQLite database and the browser profile (data/browser/, holds your site logins).
+# Ignored as whole folders; the code creates the subfolders it needs.
+/resumes/
+/data/
+*.dump
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+dashboard/next-env.d.ts
+*.tsbuildinfo
+coverage/
+
+# --- Playwright ---
+test-results/
+playwright-report/
+
+# --- OS / editors ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

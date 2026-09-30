@@ -1,0 +1,71 @@
+# PIE Job Agent - user profile TEMPLATE.
+#
+# Copy to config/user_profile.yaml (git-ignored) and fill in your real details.
+#
+# Two sections, kept strictly apart:
+#   verified_profile  FACTS. The agent treats everything here as true and uses NOTHING else
+#                     to describe you. Leave a field out rather than guessing - the agent
+#                     will report "unknown" or ask you (REQUIRES_USER_INPUT) instead.
+#   preferences       What you WANT. Used to judge fit, never presented as facts about you.
+
+verified_profile:
+  name: Your Name
+  email: you@example.com
+  phone: "+91-00000-00000"
+  location: Gurugram, Haryana, India
+  links:
+    linkedin: https://www.linkedin.com/in/your-handle
+    github: https://github.com/your-handle
+
+  total_experience_years: 0
+
+  education:
+    - institution: Example Institute of Technology
+      degree: B.Tech
+      field_of_study: Computer Science
+      graduation_year: 2026
+
+  skills:
+    - Python
+    - SQL
+    - TypeScript
+
+  certifications: []
+
+  projects:
+    - name: Example Project
+      description: One or two factual sentences about what you built.
+      technologies: [Python, FastAPI]
+
+  work_experience: []
+
+  # Answers to common application questions. Only put answers here that are true.
+  verified_answers:
+    work_authorization_india: "Yes"
+    # notice_period: "Immediate"
+    # willing_to_relocate: "Yes, within Delhi NCR"
+
+preferences:
+  preferred_roles:
+    - Software Engineer
+    - Software Developer
+    - SDE
+    - AI Engineer
+    - ML Engineer
+    - Data Engineer
+    - Data Scientist
+    - Backend Engineer
+  preferred_locations:
+    - Gurugram
+    - Noida
+    - Delhi NCR
+    - Remote
+  minimum_salary: 1000000   # INR per year (10 LPA). Jobs without salary info are NOT rejected.
+  salary_currency: INR
+  employment_type: [full-time]
+  remote_preference: any    # any | remote | hybrid | onsite
+  experience_levels: [fresher, entry-level, early-career]
+  excluded_roles: []
+  excluded_companies: []
+  maximum_application_age_hours: 48   # "fresh" window; jobs without a posting date are "unknown"
+  daily_application_limit: 20

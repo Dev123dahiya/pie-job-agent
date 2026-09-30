@@ -1,0 +1,29 @@
+# PIE Job Agent - shortlist rules.
+#
+# After a job is analyzed, these rules decide whether it is SHORTLISTED or
+# REJECTED_BY_AGENT. Every rule's result is stored with the analysis, so each decision
+# can be audited. Levels: strong | medium | weak | unknown.
+
+# A job is rejected if a dimension lands on one of the listed levels.
+dimensions:
+  role_match:       {reject: [weak]}
+  experience_match: {reject: [weak]}
+  location_match:   {reject: [weak]}
+  skills_match:     {reject: []}        # some missing skills are fine
+  salary_match:     {reject: [weak]}    # "unknown" (no salary listed) is never a rejection
+
+# fresh | stale | unknown. Only FRESH qualifies: a job must have trustworthy evidence that it
+# was posted/released/created within the 48-hour window. No (trustworthy) post date = unknown
+# = rejected, exactly like stale.
+freshness:
+  reject: [stale, unknown]
+
+# Optional thresholds; null disables them.
+min_match_score: null
+max_missing_skills: null
+
+# Also require the analyzer's own should_shortlist recommendation to be true.
+require_analyzer_recommendation: true
+
+# Batch analysis ("Analyze & shortlist") skips stale jobs unless asked, to save Claude calls.
+analyze_stale_jobs_in_batch: false

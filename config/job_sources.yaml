@@ -1,0 +1,302 @@
+# PIE Job Agent - job discovery configuration.
+#
+# Everything the crawler searches for lives here; nothing is hardcoded in adapters.
+# Discovery is read-only: it only reads public job listings through official, documented
+# endpoints, identifies itself with a User-Agent, and waits between requests.
+
+search:
+  # Matched against job titles as whole words (case-insensitive).
+  terms:
+    - Software Engineer
+    - Software Developer
+    - SDE
+    - AI Engineer
+    - ML Engineer
+    - Data Engineer
+    - Data Scientist
+    - Backend Engineer
+  # Extra phrasings that count as the same search term.
+  term_aliases:
+    SDE: [Software Development Engineer, SDE I, SDE II, SDE 1, SDE 2]
+    ML Engineer: [Machine Learning Engineer, MLE]
+    AI Engineer: [Applied AI Engineer, GenAI Engineer, Generative AI Engineer, LLM Engineer]
+    Backend Engineer: [Back End Engineer, Back-End Engineer, Backend Developer, Backend Software Engineer]
+    # Early-career phrasings are accepted as the same role family. A "junior"/"associate"
+    # title is only a search match: Claude's analysis still decides actual fit.
+    Software Engineer: [Software Engineering, Member of Technical Staff, Graduate Engineer,
+                        Graduate Engineer Trainee, Engineer Trainee, Associate Engineer,
+                        Junior Engineer, Engineer I, New Grad Engineer]
+    Software Developer: [Application Developer, Junior Developer, Associate Developer,
+                         Graduate Developer]
+    Data Engineer: [Data Platform Engineer, Analytics Engineer]
+  # Scope: anywhere in India, plus remote roles open to India. A posting takes the FIRST
+  # location it matches, so the preferred NCR places come first; "India" then covers the rest
+  # of the country (it also matches NCR postings, so NCR can never fall out of scope).
+  locations:
+    - Gurugram
+    - Noida
+    - Delhi NCR
+    - Remote
+    - India
+  # Regex patterns (case-insensitive) matched against a posting's location text.
+  location_patterns:
+    Gurugram: ["gurugram", "gurgaon"]
+    Noida: ["noida"]
+    Delhi NCR: ["\\bdelhi\\b", "\\bncr\\b", "faridabad", "ghaziabad"]
+    # Only remote roles that name India. A bare "Remote" on these boards was US-only in
+    # practice (USD pay); add "^\\s*remote\\s*$" to this list to include those anyway.
+    Remote: ["remote.{0,20}india", "india.{0,20}remote"]
+    # The word "India" (not "Indiana", "Indian Ocean"...) or an Indian city/state that boards
+    # often list without the country. Hyderabad, Pakistan is not India.
+    India: ["\\bindia\\b", "\\bbharat\\b",
+            "\\bbengaluru\\b", "\\bbangalore\\b", "\\bhyderabad\\b(?!.{0,30}pakistan)",
+            "\\bpune\\b", "\\bmumbai\\b", "\\bthane\\b", "\\bchennai\\b", "\\bkolkata\\b",
+            "\\bahmedabad\\b", "\\bgandhinagar\\b", "\\bjaipur\\b", "\\bkochi\\b", "\\bcochin\\b",
+            "\\bthiruvananthapuram\\b", "\\btrivandrum\\b", "\\bcoimbatore\\b", "\\bindore\\b",
+            "\\bchandigarh\\b", "\\bmohali\\b", "\\bmysuru\\b", "\\bmysore\\b", "\\bvadodara\\b",
+            "\\bnagpur\\b", "\\bbhubaneswar\\b", "\\bvisakhapatnam\\b", "\\blucknow\\b",
+            "\\bkarnataka\\b", "\\btelangana\\b", "\\bmaharashtra\\b", "\\btamil nadu\\b",
+            "\\bkerala\\b", "\\bharyana\\b", "\\buttar pradesh\\b", "\\bgujarat\\b",
+            "\\bwest bengal\\b"]
+
+# Skills recognised in job descriptions (whole-word, case-insensitive). Used to fill
+# Job.skills with terms that literally appear in the posting.
+skills_vocabulary:
+  - Python
+  - Java
+  - JavaScript
+  - TypeScript
+  - Go
+  - Golang
+  - C++
+  - C#
+  - Rust
+  - Kotlin
+  - Scala
+  - SQL
+  - NoSQL
+  - PostgreSQL
+  - MySQL
+  - MongoDB
+  - Redis
+  - Kafka
+  - Spark
+  - Airflow
+  - dbt
+  - Snowflake
+  - Databricks
+  - Hadoop
+  - AWS
+  - GCP
+  - Azure
+  - Docker
+  - Kubernetes
+  - Terraform
+  - Linux
+  - Git
+  - REST
+  - GraphQL
+  - gRPC
+  - Microservices
+  - Django
+  - Flask
+  - FastAPI
+  - Spring
+  - Spring Boot
+  - Node.js
+  - React
+  - Next.js
+  - Angular
+  - Vue
+  - HTML
+  - CSS
+  - Machine Learning
+  - Deep Learning
+  - NLP
+  - Computer Vision
+  - LLM
+  - PyTorch
+  - TensorFlow
+  - scikit-learn
+  - Pandas
+  - NumPy
+  - Statistics
+  - Data Structures
+  - Algorithms
+  - System Design
+  - CI/CD
+  - Distributed Systems
+
+sources:
+  # Greenhouse Job Board API: official, public, documented, no login required.
+  # https://developers.greenhouse.io/job-board.html
+  # Add or remove company board tokens (the name in boards.greenhouse.io/<token>).
+  - name: greenhouse
+    type: greenhouse
+    enabled: true
+    request_delay_seconds: 1.0
+    # Fetch each NEW matching posting individually to read published pay ranges.
+    fetch_pay_ranges: true
+    boards:
+      - mongodb
+      - databricks
+      - agoda
+      - zscaler
+      - roblox
+      - sumologic
+      - airbnb
+      - elastic
+      - twilio
+      - fivetran
+      - coinbase
+      - cloudflare
+      # Added after checking each board exists on the public API (companies with India teams).
+      - inmobi
+      - groww
+      - druva
+      - hackerrank
+      # Added in Phase 5.6 for India-wide coverage. Each board was checked on the public API:
+      # the board name matches the company and it lists India postings with first_published.
+      - okta
+      - zenoti
+      - glance
+      - toast
+      - turing
+      - stripe
+      - sigmoid
+      - gitlab
+      - newrelic
+      - bitwarden
+      - rubrik
+      - highradius
+
+  # Lever Postings API: official, public, no login. https://github.com/lever/postings-api
+  # One company per entry (the name in jobs.lever.co/<slug>); each board was verified to exist.
+  - name: lever
+    type: lever
+    enabled: true
+    request_delay_seconds: 1.0
+    companies:
+      - {slug: paytm, name: Paytm}
+      - {slug: meesho, name: Meesho}
+      - {slug: zeta, name: Zeta}
+      - {slug: cred, name: CRED}
+      - {slug: mindtickle, name: Mindtickle}
+      - {slug: hevodata, name: Hevo Data}
+      - {slug: fampay, name: FamPay}
+      - {slug: pocketfm, name: Pocket FM}
+
+  # Ashby public Job Board API: official, public, no login.
+  # https://developers.ashbyhq.com/docs/public-job-posting-api
+  - name: ashby
+    type: ashby
+    enabled: true
+    request_delay_seconds: 1.0
+    boards:
+      - {slug: sarvam, name: Sarvam AI}
+      - {slug: atlan, name: Atlan}
+      # Added in Phase 5.6: every posting on these boards describes the named company, and
+      # they list India postings with publishedAt.
+      - {slug: tekion, name: Tekion}
+      - {slug: thoughtworks, name: Thoughtworks}
+      - {slug: spotdraft, name: SpotDraft}
+
+  # SmartRecruiters Posting API: official, public, no login. Filtered to India server-side.
+  # https://developers.smartrecruiters.com/docs/posting-api
+  - name: smartrecruiters
+    type: smartrecruiters
+    enabled: true
+    request_delay_seconds: 1.0
+    country: in
+    companies:
+      - {slug: ServiceNow, name: ServiceNow}
+      - {slug: BoschGroup, name: Bosch}
+      - {slug: Continental, name: Continental}
+      - {slug: Wabtec, name: Wabtec}
+      - {slug: Unacademy, name: Unacademy}
+      # Added in Phase 5.4 after checking the public API: active NCR postings.
+      - {slug: ixigo, name: ixigo}
+      - {slug: irissoftware, name: Iris Software}
+      # Added in Phase 5.6: the API's own company identifier (exact case) and India postings
+      # with releasedDate.
+      - {slug: Freshworks, name: Freshworks}
+      - {slug: Experian, name: Experian}
+      - {slug: SWIGGY, name: Swiggy}
+      - {slug: Wise, name: Wise}
+
+  # Remotive public API (remote jobs). Its terms ask for low volume and a link back to
+  # Remotive: at most max_requests_per_run requests; every job keeps its Remotive URL.
+  # https://github.com/remotive-com/remote-jobs-api
+  - name: remotive
+    type: remotive
+    enabled: true
+    request_delay_seconds: 2.0
+    max_requests_per_run: 2
+    categories: [software-dev, data]
+
+  # Adzuna Jobs API (India): official API; needs YOUR free key (ADZUNA_APP_ID/ADZUNA_APP_KEY
+  # in .env, https://developer.adzuna.com/). Disabled until you add a key and enable it.
+  # Terms: 25 requests/min, 250/day -> 3s between requests, at most 60 per run
+  # (8 roles x 3 places x up to 2 pages = 48).
+  # Adzuna does not document what 'created' means, so it is NOT used as a post date
+  # (freshness UNKNOWN) unless you verify it and set created_is_publication: true.
+  # Salary: estimates and figures without a stated period stay UNKNOWN (raw value kept).
+  - name: adzuna
+    type: adzuna
+    enabled: true
+    app_id_env: ADZUNA_APP_ID
+    app_key_env: ADZUNA_APP_KEY
+    country: in
+    request_delay_seconds: 3.0
+    max_requests_per_run: 60
+    max_days_old: 2          # server-side pre-filter only; never makes a job "fresh"
+    results_per_page: 50
+    max_pages: 2
+    created_is_publication: false
+    # How each configured location is phrased in Adzuna's "where" search (the location
+    # filter afterwards still uses the configured patterns, unchanged).
+    location_queries:
+      Gurugram: Gurgaon   # Adzuna indexes the city as "Gurgaon" ("Gurugram" returned nothing)
+      Delhi NCR: Delhi
+
+  # Offline fixtures (realistic, clearly fictional). Used by tests and for demos.
+  - name: mock
+    type: mock
+    enabled: false
+
+# Lead -> trusted ATS resolution (Phase 5.7). OFF by default.
+# Aggregators (Adzuna; Himalayas below) are LEAD sources only: their dates are never a post
+# date and never make a job fresh. With this on, the daily run turns each lead's employer into
+# a board on a supported ATS (Greenhouse / SmartRecruiters / Ashby / Lever); once YOU approve a
+# board (python -m backend.scripts.leads boards --approve platform:board_id) its postings are
+# crawled by the normal adapter, with that ATS's own trusted timestamps, through the normal
+# filters and analysis. Read-only, public board APIs only; no employer or application pages.
+lead_resolution:
+  enabled: false
+  auto_activate_verified: false   # true: crawl automatically VERIFIED boards without approval
+  max_requests_per_run: 60        # all board-resolution requests together
+  max_requests_per_company: 8     # one company never uses more than this
+  max_companies_per_run: 25       # companies needing requests; cached ones are free
+  max_boards_crawled_per_run: 10
+  request_delay_seconds: 1.0
+  negative_cache_days: 14         # a company without a board is not re-checked for 14 days
+  lead_match_days: 14
+  description_mention_threshold: 0.8   # Lever/Ashby identity: share of postings naming the company
+  min_postings_for_mention: 3
+  match_timing_tolerance_hours: 6      # an ATS posting newer than the lead + 6h is a repost
+  min_description_chars: 300
+  min_description_overlap: 0.5
+  # Boards you vouch for, when a company's name does not map to its board id:
+  #   "Company As The Aggregator Names It": {platform: greenhouse, board: boardtoken}
+  overrides: {}
+  # Himalayas remote-jobs API (https://himalayas.app): lead source only. Its pubDate was
+  # checked against 55 postings on the employers' own ATS: never earlier, often months late.
+  # Leads keep a link back to Himalayas, as its terms require.
+  himalayas:
+    enabled: false
+    country: IN
+    seniority: [Entry-level]
+    terms: []                     # empty: the search terms above
+    max_pages: 1
+    max_requests_per_run: 10
+    request_delay_seconds: 2.0
