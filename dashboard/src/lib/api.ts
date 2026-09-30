@@ -21,7 +21,7 @@ import type {
 
 /** Backend base URL, read on the server (never exposed to the browser). */
 export function apiBaseUrl(): string {
-  return (process.env.PIE_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
+  return (process.env.PIE_API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 }
 
 async function getJson<T>(path: string, fetchImpl: typeof fetch = fetch): Promise<T> {

@@ -35,12 +35,12 @@ python -m venv .venv
 pip install -e ".[dev]"
 alembic upgrade head
 python -m backend.scripts.seed_mock      # optional: fictional demo data (dev mode only)
-uvicorn backend.main:app --reload --port 8000
+python -m backend.serve --reload       # http://127.0.0.1:8000 (this computer only)
 
 # 4. Dashboard (new terminal)
 cd dashboard
 npm install
-npm run dev                       # http://localhost:3000
+npm run dev                       # http://127.0.0.1:3000 (this computer only)
 ```
 
 ## Discover and shortlist jobs
@@ -62,7 +62,7 @@ The dashboard's **Jobs** page runs the same steps with **Discover jobs** and **A
 
 **Stale jobs.** By default, batch analysis skips stale jobs (older than `maximum_application_age_hours`) to save Claude calls. Jobs with no posting date are *unknown*, not stale, and are analyzed.
 
-The API is served at http://localhost:8000, with docs at `/docs` and the health check at `/api/health`.
+The API is served at http://127.0.0.1:8000, with docs at `/docs` and the health check at `/api/health`.
 
 If the backend isn't running, the dashboard still loads and shows **"Backend offline"**. It never substitutes demo numbers.
 
@@ -70,7 +70,7 @@ If the backend isn't running, the dashboard still loads and shows **"Backend off
 
 Once a day, PIE runs discovery on every enabled source, then Claude analysis of the **fresh** jobs, then the shortlist rules. It never creates or submits applications and never opens a browser.
 
-- **When.** Every day at `DAILY_RUN_TIME` (default `07:00`, `TIMEZONE` default `Asia/Kolkata`), while the API (`uvicorn backend.main:app`) is running. If the machine was off at that time, the run happens on the next start that day. A day whose slot was already used, by a scheduled or a manual run, is not run again.
+- **When.** Every day at `DAILY_RUN_TIME` (default `07:00`, `TIMEZONE` default `Asia/Kolkata`), while the API (`python -m backend.serve`) is running. If the machine was off at that time, the run happens on the next start that day. A day whose slot was already used, by a scheduled or a manual run, is not run again.
 - **Run it now.** Use `python -m backend.scripts.daily run` (add `--json` for the full report), or `POST /api/daily-run`. `python -m backend.scripts.daily status` shows the schedule and the latest report.
 - **Turn it off.** Set `DAILY_RUN_ENABLED=false` in `.env` and restart the API. Manual runs still work.
 - **Without the API running.** You can schedule the CLI with Windows Task Scheduler instead, for example `schtasks /Create /SC DAILY /ST 07:00 /TN "PIE daily run" /TR "<repo>\.venv\Scripts\python.exe -m backend.scripts.daily run"`. PIE does not register this for you.
@@ -182,7 +182,7 @@ npm run build
 
 - **`docker compose up` fails with `error getting credentials`:** the Docker Desktop credential helper is failing. Signing in to Docker Desktop usually fixes it. Alternatively, pull once with an empty config: `DOCKER_CONFIG=$(mktemp -d) docker pull postgres:17-alpine`.
 - **Analysis returns 503 "No Claude analyzer available":** set `ANTHROPIC_API_KEY`, or install the Claude Code CLI and run `claude` once to sign in.
-- **Dashboard shows "Backend offline":** the backend isn't reachable at `PIE_API_URL` (default `http://localhost:8000`).
+- **Dashboard shows "Backend offline":** the backend isn't reachable at `PIE_API_URL` (default `http://127.0.0.1:8000`).
 
 ## Safety defaults
 

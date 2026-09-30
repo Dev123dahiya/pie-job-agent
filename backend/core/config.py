@@ -28,7 +28,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://pie:pie@localhost:5432/pie_job_agent"
     database_echo: bool = False
 
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    cors_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
+    )
 
     # IANA timezone used for "today" boundaries on the dashboard.
     timezone: str = "Asia/Kolkata"

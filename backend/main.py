@@ -1,4 +1,4 @@
-"""FastAPI entrypoint: `uvicorn backend.main:app --reload`."""
+"""FastAPI entrypoint. Start it with `python -m backend.serve --reload` (127.0.0.1 only)."""
 
 import logging
 from collections.abc import AsyncIterator
@@ -21,6 +21,7 @@ from backend.api.routes import (
     resumes,
 )
 from backend.core.config import Settings, get_settings
+from backend.core.local_only import LocalOnlyMiddleware
 from backend.core.logging import configure_logging
 from backend.services.daily import DailyScheduler, build_daily_plan, parse_run_time, run_daily
 from database.session import get_session_factory
@@ -57,6 +58,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Added last, so it runs first: non-local requests are refused before anything else.
+    app.add_middleware(LocalOnlyMiddleware)
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception) -> JSONResponse:
