@@ -38,7 +38,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from agent.execution.answers import Answer, AnswerBank
-from agent.execution.mapping import AMBIGUOUS, VERIFIED_AUTOFILL, choose_option, plan_fields
+from agent.execution.mapping import (
+    AMBIGUOUS,
+    VERIFIED_AUTOFILL,
+    choose_option,
+    fill_target,
+    option_labels,
+    plan_fields,
+)
 from backend.core.config import Settings, live_execution_block
 from backend.core.profile import UserProfile
 from backend.services.readiness import evaluate_readiness, user_blockers
@@ -436,7 +443,7 @@ def _plan_page(
         {
             **p.public(),
             "has_value": f.get("has_value", False),
-            "options": [o.get("label") for o in f.get("options") or []][:30],
+            "options": option_labels(f),  # the page's own option texts (not the answer)
             "error": f.get("error") or None,
         }
         for p, f in zip(plans, snap.fields, strict=True)
@@ -477,12 +484,12 @@ class Fill:
     reason: str = ""
 
 
-def _record(plan: dict[str, Any], answer: Answer, value: str, method: str) -> dict[str, Any]:
+def _record(plan: dict[str, Any], answer: Answer, method: str) -> dict[str, Any]:
+    """What PIE keeps about a filled field: which answer went in, never the answer itself."""
     return {
         "field_id": plan["field_id"],
         "label": plan["label"],
         "key": plan["key"],
-        "value": value,
         "source": answer.source,
         "method": method,
     }
@@ -494,12 +501,12 @@ def _fill_dropdown(
     """Custom dropdown: open, search, select the ONE clearly matching option, verify it shows."""
     sid, fid = str(session.id), plan["field_id"]
     target = answer.value or ""
-    if plan.get("selected") and choose_option([plan["selected"]], target)[0] is not None:
-        return Fill("already", _record(plan, answer, plan["selected"], "dropdown (already set)"))
+    if plan.get("preselected"):
+        return Fill("already", _record(plan, answer, "dropdown (already set)"))
     listing = ctx.browser.combobox_options(sid, fid, None)
     if listing["selected"] and choose_option([listing["selected"]], target)[0] is not None:
         ctx.browser.combobox_close(sid, fid)
-        return Fill("already", _record(plan, answer, listing["selected"], "dropdown (already set)"))
+        return Fill("already", _record(plan, answer, "dropdown (already set)"))
     options: list[str] = listing["options"]
     index, why = choose_option(options, target) if options else (None, "no options listed")
     if index is None:
@@ -511,12 +518,12 @@ def _fill_dropdown(
         index, why = choose_option(options, target) if options else (None, "no matching option")
     if index is None:
         ctx.browser.combobox_close(sid, fid)
-        return Fill("stop", None, f"verified answer '{target}' but {why}")
+        return Fill("stop", None, f"answer '{plan['key']}': {why}")
     shown = ctx.browser.combobox_select(sid, fid, index, options[index])
     if _norm(shown) != _norm(options[index]):
         ctx.browser.combobox_close(sid, fid)
-        return Fill("refused", None, f"the dropdown shows '{shown}' after selecting")
-    return Fill("filled", _record(plan, answer, options[index], "dropdown"))
+        return Fill("refused", None, "the dropdown does not show the chosen option after selecting")
+    return Fill("filled", _record(plan, answer, "dropdown"))
 
 
 def _fill_one(
@@ -530,20 +537,20 @@ def _fill_one(
     try:
         if plan["kind"] == "combobox":
             return _fill_dropdown(ctx, session, plan, answer)
-        options = plan.get("options") or []
-        if plan["kind"] in ("select", "radio") and plan.get("selected"):
-            chosen = options[plan["option"]] if plan["option"] is not None else None
-            if chosen is not None and _norm(chosen) == _norm(plan["selected"]):
-                return Fill("already", _record(plan, answer, chosen, "already selected"))
-        ok = ctx.browser.fill(
-            str(session.id), plan["field_id"], plan["kind"], plan["value"], plan["option"]
-        )
+        # The value (and which option) is worked out again here from the answer bank: the
+        # stored plan never contains the answer.
+        target = fill_target(plan["kind"], plan.get("options") or [], answer.value or "")
+        if isinstance(target, str):
+            return Fill("refused", None, f"answer '{plan['key']}': {target}")
+        value, option, _ = target
+        if plan["kind"] in ("select", "radio") and plan.get("preselected"):
+            return Fill("already", _record(plan, answer, "already selected"))
+        ok = ctx.browser.fill(str(session.id), plan["field_id"], plan["kind"], value, option)
     except BrowserError as exc:
         return Fill("refused", None, f"browser: {exc}")
     if not ok:
         return Fill("refused", None, "the page did not keep the value")
-    shown = options[plan["option"]] if plan["option"] is not None and options else plan["value"]
-    return Fill("filled", _record(plan, answer, str(shown), "direct"))
+    return Fill("filled", _record(plan, answer, "direct"))
 
 
 # --- uploads ---------------------------------------------------------------------------------

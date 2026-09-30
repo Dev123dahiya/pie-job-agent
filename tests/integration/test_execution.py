@@ -57,6 +57,26 @@ def site() -> Iterator[ApplySite]:
     s.stop()
 
 
+@pytest.fixture
+def entered(browser: BrowserManager, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """field_id -> the text or option label PIE put on the page, recorded at fill time."""
+    seen: dict[str, str] = {}
+    real_fill, real_select = browser.fill, browser.combobox_select
+
+    def fill(sid: str, field_id: str, kind: str, value: str | None, option: int | None) -> bool:
+        ok = real_fill(sid, field_id, kind, value, option)
+        seen[field_id] = f"option {option}" if option is not None else str(value)
+        return ok
+
+    def combobox_select(sid: str, field_id: str, index: int, expected: str) -> str:
+        seen[field_id] = expected
+        return real_select(sid, field_id, index, expected)
+
+    monkeypatch.setattr(browser, "fill", fill)
+    monkeypatch.setattr(browser, "combobox_select", combobox_select)
+    return seen
+
+
 @pytest.fixture(scope="module")
 def browser() -> Iterator[BrowserManager]:
     manager = BrowserManager(headless=True, timeout_ms=15_000)
@@ -240,6 +260,61 @@ def test_dry_run_end_to_end_never_submits(
     assert "dry_run_completed" in events and "application_submitted" not in events
 
 
+def _answer_values(profile: UserProfile) -> dict[str, str]:
+    """The user's own answers that a form could receive (short yes/no values excluded)."""
+    facts = profile.verified_profile
+    values = {"email": str(facts.email), "phone": facts.phone or ""}
+    values |= {f"link {k}": v for k, v in facts.links.items()}
+    values |= {k: v for k, v in facts.verified_answers.items() if len(v) >= 6}
+    return {k: v for k, v in values.items() if v}
+
+
+def _without_page_options(data: Any) -> Any:
+    """Drop the page's own option lists: they are the employer's choices, not answers."""
+    if isinstance(data, dict):
+        return {k: _without_page_options(v) for k, v in data.items() if k != "options"}
+    if isinstance(data, list):
+        return [_without_page_options(v) for v in data]
+    return data
+
+
+def _leaks(profile: UserProfile, records: Any) -> list[str]:
+    import json
+
+    text = json.dumps(_without_page_options(records), ensure_ascii=False, default=str)
+    return [k for k, v in _answer_values(profile).items() if v in text]
+
+
+def test_answers_are_never_stored_in_session_records(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: Any,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+) -> None:
+    """REQUIREMENTS 13: salary, notice period etc. are not kept in browser-session records.
+    The fields are filled on the page, and PIE records only which answer key went in."""
+    out = svc.run_execution(ectx(db, exec_settings, exec_profile, browser), ready_job)
+    assert out["dry_run_complete"] is True
+    session = db.get(BrowserSession, uuid.UUID(out["session_id"]))
+    assert session is not None and len(session.filled_fields) >= 10
+    for record in [*session.detected_fields, *session.filled_fields]:
+        assert not {"value", "option", "selected"} & set(record), record
+    stored = {
+        "detected_fields": session.detected_fields,
+        "filled_fields": session.filled_fields,
+        "missing_answers": session.missing_answers,
+        "skipped_fields": session.skipped_fields,
+        "challenges": session.challenges,
+        "current_step": session.current_step,
+        "logs": [(x.summary, x.error) for x in db.scalars(select(ExternalActionLog))],
+        "events": [(e.reason, e.evidence) for e in db.scalars(select(ApplicationEvent))],
+        "result": out,
+    }
+    assert _leaks(exec_profile, stored) == []
+
+
 def test_dry_run_step_by_step_and_submit_is_refused(
     db: Session,
     exec_settings: Settings,
@@ -378,6 +453,7 @@ def test_unknown_question_is_resumable_after_the_user_answers(
     browser: Any,
     ready_job: uuid.UUID,
     site: ApplySite,
+    entered: dict[str, str],
 ) -> None:
     use_case(db, ready_job, site, "unknown")
     ctx = ectx(db, exec_settings, exec_profile, browser)
@@ -403,7 +479,8 @@ def test_unknown_question_is_resumable_after_the_user_answers(
     session = db.get(BrowserSession, uuid.UUID(out["session_id"]))
     assert session is not None
     night = [f for f in session.filled_fields if f["key"] == missing[0]["question_key"]]
-    assert night and night[0]["value"] == "No" and "user" in night[0]["source"]
+    assert night and "user" in night[0]["source"] and "value" not in night[0]
+    assert entered[night[0]["field_id"]] == "No"  # on the page, not in PIE's records
     assert job_state(db, ready_job) is S.READY_TO_APPLY
 
 
@@ -824,6 +901,18 @@ def test_agent_dry_run_workflow_stops_before_submit(
     }
     assert all(log.mode == "DRY_RUN" for log in logs if log.session_id)
     assert finished.applications_submitted == 0
+    # The stored agent actions and everything sent to Claude name answer keys, not answers.
+    from database.models import AgentAction
+
+    actions = db.scalars(select(AgentAction).where(AgentAction.run_id == run.id)).all()
+    assert _leaks(exec_profile, {"actions": [a.output for a in actions]}) == []
+    # Claude does see the profile facts (name, public links) by design; never the contact
+    # details or the form answers (salary, notice period, work authorization...).
+    identity = {"first_name", "last_name"} | {
+        f"link {k}" for k in exec_profile.verified_profile.links
+    }
+    prompt_leaks = _leaks(exec_profile, {"prompts": claude.prompts})
+    assert [k for k in prompt_leaks if k not in identity] == []
 
 
 def test_agent_pauses_deterministically_on_a_blocker_and_resumes(
@@ -1269,6 +1358,16 @@ def filled(session: BrowserSession, key: str) -> dict[str, Any]:
     return next(f for f in session.filled_fields if f["key"] == key)
 
 
+def shown(entered: dict[str, str], session: BrowserSession, key: str) -> str:
+    """What PIE put on the page for a filled field (PIE itself does not store it)."""
+    field_id = filled(session, key)["field_id"]
+    value = entered[field_id]
+    if value.startswith("option "):
+        plan = next(f for f in session.detected_fields if f["field_id"] == field_id)
+        return str(plan["options"][int(value.split()[1])])
+    return value
+
+
 def test_act_select_is_opened_selected_and_verified(
     db: Session,
     exec_settings: Settings,
@@ -1276,11 +1375,12 @@ def test_act_select_is_opened_selected_and_verified(
     browser: Any,
     ready_job: uuid.UUID,
     site: ApplySite,
+    entered: dict[str, str],
 ) -> None:
     out, session = dry(db, exec_settings, exec_profile, browser, ready_job, site, "actselect")
     assert out["dry_run_complete"] is True, out
     auth = filled(session, "work_authorization")
-    assert auth["method"] == "dropdown" and auth["value"] == "Yes"
+    assert auth["method"] == "dropdown" and shown(entered, session, "work_authorization") == "Yes"
     field = next(f for f in session.detected_fields if f["key"] == "work_authorization")
     assert field["kind"] == "combobox" and field["category"] == "VERIFIED_AUTOFILL"
     assert site.submissions == []
@@ -1293,13 +1393,16 @@ def test_searchable_act_select_searches_for_the_verified_value(
     browser: Any,
     ready_job: uuid.UUID,
     site: ApplySite,
+    entered: dict[str, str],
 ) -> None:
     out, session = dry(
         db, exec_settings, exec_profile, browser, ready_job, site, "actselect_search"
     )
     assert out["dry_run_complete"] is True, out
     notice = filled(session, "notice_period")
-    assert notice["method"] == "dropdown" and notice["value"] == "Immediate"
+    assert (
+        notice["method"] == "dropdown" and shown(entered, session, "notice_period") == "Immediate"
+    )
 
 
 @pytest.mark.parametrize("case", ["actselect_missing", "actselect_ambiguous"])
@@ -1350,10 +1453,11 @@ def test_normal_select_still_works(
     browser: Any,
     ready_job: uuid.UUID,
     site: ApplySite,
+    entered: dict[str, str],
 ) -> None:
     out, session = dry(db, exec_settings, exec_profile, browser, ready_job, site, "normal")
     auth = filled(session, "work_authorization")
-    assert auth["method"] == "direct" and auth["value"] == "Yes"
+    assert auth["method"] == "direct" and shown(entered, session, "work_authorization") == "Yes"
 
 
 # --- 3/4. answers and classification on a real form -----------------------------------------

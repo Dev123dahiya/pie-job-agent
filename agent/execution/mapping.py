@@ -73,9 +73,22 @@ class FieldPlan:
     option: int | None = None  # native select / radio: the option index to choose
     value: str | None = None  # the verified value (text) or the answer to find (dropdowns)
     selected: str | None = None  # dropdown label already selected on the page
+    preselected: bool = False  # the page already shows the verified answer
 
     def public(self) -> dict[str, Any]:
-        return asdict(self)
+        """What may be stored and shown: everything except the user's answer.
+
+        ``value``, ``option`` (which option was chosen) and ``selected`` (the label the page
+        shows) would each reveal the answer. They are recomputed from the answer bank at
+        fill time (see ``fill_target``) and never written to a session record."""
+        data = asdict(self)
+        for private in PRIVATE_PLAN_KEYS:
+            data.pop(private, None)
+        return data
+
+
+# Plan fields that carry (or reveal) the user's answer: never stored, logged or returned.
+PRIVATE_PLAN_KEYS = ("value", "option", "selected")
 
 
 def _norm(text: str) -> str:
@@ -230,10 +243,10 @@ def choose_option(options: list[str], answer: str) -> tuple[int | None, str]:
         word = polarity.group(1)
         matches = [i for i, o in cleaned if re.match(rf"^{word}\b", o)]
         if len(matches) == 1:
-            return matches[0], f"the only option starting with '{word}'"
+            return matches[0], "the only option starting with the answer's yes/no"
         if matches:
-            return None, f"{len(matches)} options start with '{word}' - ambiguous"
-        return None, f"no option says '{word}'"
+            return None, f"{len(matches)} options start with the answer's yes/no - ambiguous"
+        return None, "no option starts with the answer's yes/no"
     return None, "no option exactly matches the verified answer"
 
 
@@ -282,37 +295,50 @@ def plan_field(
         return stop(UNKNOWN, f"answer '{key}' is {answer.status.value}{note}", key, answer)
     assert answer.value is not None
 
+    if kind in ("checkbox_group", "date"):
+        return stop(AMBIGUOUS, f"{kind} controls are not filled automatically", key, answer)
+    labels = option_labels(field)
+    target = fill_target(kind, labels, answer.value)
+    if isinstance(target, str):  # messages name the answer key, never the answer itself
+        return stop(AMBIGUOUS, f"answer '{key}': {target}", key, answer)
+    value, option, why = target
+    selected = field.get("selected_label") or None
     plan = FieldPlan(**base, key=key, category=VERIFIED_AUTOFILL, action="fill", reason=reason,
                      answer_status=answer.status.value, source=answer.source,
-                     value=answer.value, selected=field.get("selected_label") or None)  # fmt: skip
-    if kind in ("select", "radio"):
-        labels = [o.get("label") or o.get("value") or "" for o in field.get("options") or []]
-        option, why = choose_option(labels, answer.value)
-        if option is None:
-            return stop(AMBIGUOUS, f"verified answer '{answer.value}' but {why}", key, answer)
-        plan.option = option
+                     value=value, option=option, selected=selected)  # fmt: skip
+    if why:
         plan.reason += f"; {why}"
-        return plan
+    if selected and kind in ("select", "radio") and option is not None:
+        plan.preselected = _norm(labels[option]) == _norm(selected)
+    elif selected and kind == "combobox":
+        plan.preselected = choose_option([selected], value)[0] is not None
+    return plan
+
+
+def option_labels(field: dict[str, Any]) -> list[str]:
+    """The option texts of a select/radio field, as PIE stores and matches them."""
+    return [o.get("label") or o.get("value") or "" for o in field.get("options") or []]
+
+
+def fill_target(kind: str, options: list[str], answer: str) -> tuple[str, int | None, str] | str:
+    """What to enter for a verified answer: (value, option index, note), or why it can't be.
+
+    Used when planning and again right before filling, so the answer never has to be stored
+    with the plan."""
+    if kind in ("select", "radio"):
+        option, why = choose_option(options, answer)
+        return f"no clear option ({why})" if option is None else (answer, option, why)
     if kind == "combobox":
         # Options appear only when the dropdown is opened: the browser step searches for the
         # value and selects it only on a clear match (otherwise the field blocks).
-        plan.reason += "; option chosen in the dropdown only on a clear match"
-        return plan
+        return answer, None, "option chosen in the dropdown only on a clear match"
     if kind == "checkbox":
-        if not re.match(r"^(yes|no)\b", _norm(answer.value)):
-            return stop(AMBIGUOUS, "checkbox needs a yes/no answer", key, answer)
-        plan.value = "true" if _norm(answer.value).startswith("yes") else "false"
-        return plan
-    if kind in ("checkbox_group", "date"):
-        return stop(AMBIGUOUS, f"{kind} controls are not filled automatically", key, answer)
-    if kind == "number" and not re.fullmatch(r"-?\d+(\.\d+)?", answer.value.strip()):
-        return stop(
-            AMBIGUOUS,
-            f"numeric field but the verified answer is '{answer.value}' (not converting)",
-            key,
-            answer,
-        )
-    return plan
+        if not re.match(r"^(yes|no)\b", _norm(answer)):
+            return "a checkbox needs a yes/no answer"
+        return ("true" if _norm(answer).startswith("yes") else "false"), None, ""
+    if kind == "number" and not re.fullmatch(r"-?\d+(\.\d+)?", answer.strip()):
+        return "numeric field but the verified answer is not a number (not converting)"
+    return answer, None, ""
 
 
 def plan_fields(

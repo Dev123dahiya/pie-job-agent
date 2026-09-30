@@ -82,7 +82,7 @@ function Session({ app, s }: { app: ApplicationDetail; s: BrowserSessionView }) 
           <ul className="space-y-0.5 text-xs text-ink-2">
             {s.filled_fields.map((f) => (
               <li key={f.field_id}>
-                {f.label} ← {f.key}
+                {f.label} — Filled from: {f.key}
                 {f.method && f.method !== "direct" ? ` (${f.method})` : ""}
               </li>
             ))}
