@@ -89,12 +89,25 @@ def exec_context(ctx: ToolContext, tool: str) -> svc.ExecContext:
     )
 
 
+# Errors after which the browser session cannot usefully continue: PIE fails the session
+# (screenshot, log, job FAILED, page closed) instead of leaving it "in progress"
+# (REQUIREMENTS 12). Other errors (e.g. "no form yet - click Apply") leave it open.
+TERMINAL_ERRORS = {"UNEXPECTED_PAGE", "BROWSER_ERROR", "VALIDATION_FAILED"}
+
+
 def _call(ctx: ToolContext, tool: str, fn: Any, *args: Any, **kwargs: Any) -> ExecutionOutput:
     ectx = exec_context(ctx, tool)
+    session_id = args[0] if args and fn is not svc.open_application else None
     try:
         data = fn(ectx, *args, **kwargs)
     except svc.ExecutionError as exc:
+        if session_id is not None and exc.code in TERMINAL_ERRORS:
+            svc.fail_session(ectx, session_id, exc.message, {"code": exc.code, **exc.details})
         raise ToolError(ToolErrorCode(exc.code), exc.message, details=exc.details) from exc
+    except Exception as exc:  # a browser crash or a bug: never leave the session stuck
+        if session_id is not None:
+            svc.fail_session(ectx, session_id, f"{type(exc).__name__}: {exc}", {"code": "ERROR"})
+        raise
     return ExecutionOutput(**data)
 
 

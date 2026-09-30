@@ -496,7 +496,110 @@ def test_field_validation_error_stops_preparation(
     out = svc.run_execution(ectx(db, exec_settings, exec_profile, browser), ready_job)
     assert out["error"] == "The form is not ready"
     assert any("Phone" in p for p in out["details"]["problems"])
-    assert out["state"] == "FILLING" and site.submissions == []
+    assert site.submissions == []
+    # A form PIE cannot complete is a failure, not a session left "in progress" (B3).
+    assert_failed_cleanly(db, browser, exec_settings, out, ready_job, "prepare_submission")
+
+
+def assert_failed_cleanly(
+    db: Session,
+    browser: Any,
+    settings: Settings,
+    out: dict[str, Any],
+    job_id: uuid.UUID,
+    stage: str,
+) -> None:
+    """REQUIREMENTS 12: screenshot, error logged with its step, job FAILED, page closed."""
+    assert out["failed"] is True and out["state"] == "FAILED" and out["failed_stage"] == stage
+    assert job_state(db, job_id) is S.FAILED
+    session = db.get(BrowserSession, uuid.UUID(out["session_id"]))
+    assert session is not None and session.state is BrowserSessionState.FAILED
+    assert not browser.is_alive(str(session.id))
+    assert session.errors and session.errors[-1]["step"] == stage
+    shot = next(s for s in session.screenshots if s["label"] == "failed")
+    assert (settings.application_artifacts_dir / shot["file"]).is_file()
+    app = db.scalar(select(Application).where(Application.job_id == job_id))
+    assert app is not None and app.last_error
+    failed = db.scalars(
+        select(ApplicationEvent).where(ApplicationEvent.event_type == "execution_failed")
+    ).all()
+    assert failed and failed[-1].evidence and failed[-1].evidence["stage"] == stage
+    logs = db.scalars(select(ExternalActionLog).where(ExternalActionLog.session_id == session.id))
+    assert any(x.result is ExternalActionResult.FAILED for x in logs)
+
+
+def test_page_without_a_form_fails_cleanly(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: Any,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+) -> None:
+    use_case(db, ready_job, site, "noform")
+    out = svc.run_execution(ectx(db, exec_settings, exec_profile, browser), ready_job)
+    assert "No application form" in out["error"]
+    assert_failed_cleanly(db, browser, exec_settings, out, ready_job, "inspect_application_form")
+
+
+def test_unexpected_redirect_fails_cleanly(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: Any,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def elsewhere(session: BrowserSession, snap: Any) -> None:
+        raise svc.ExecutionError("UNEXPECTED_PAGE", "The browser is on jobs.elsewhere.example")
+
+    monkeypatch.setattr(svc, "_check_domain", elsewhere)
+    out = svc.run_execution(ectx(db, exec_settings, exec_profile, browser), ready_job)
+    assert "elsewhere" in out["error"] and out["details"]["code"] == "UNEXPECTED_PAGE"
+    assert_failed_cleanly(db, browser, exec_settings, out, ready_job, "inspect_application_form")
+    assert site.submissions == []
+
+
+def test_crash_while_filling_fails_cleanly(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: Any,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def crash(*_: Any) -> bool:
+        raise RuntimeError("renderer crashed")
+
+    monkeypatch.setattr(browser, "fill", crash)
+    out = svc.run_execution(ectx(db, exec_settings, exec_profile, browser), ready_job)
+    # Returned, not raised: the caller can go on with the next job.
+    assert "renderer crashed" in out["error"]
+    assert_failed_cleanly(db, browser, exec_settings, out, ready_job, "fill_application_field")
+
+
+def test_agent_tool_error_on_the_wrong_site_fails_the_session(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: Any,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+) -> None:
+    ctx = tctx(db, exec_settings, exec_profile, browser)
+    sid = (call(ctx, "open_application", job_id=ready_job).data or {})["session_id"]
+    session = db.get(BrowserSession, uuid.UUID(sid))
+    assert session is not None
+    session.target_url, session.target_domain = "https://jobs.elsewhere.example/apply", "x.example"
+    db.commit()
+    res = call(ctx, "inspect_application_form", session_id=sid)
+    assert res.error_code is ToolErrorCode.UNEXPECTED_PAGE
+    db.expire_all()
+    assert session.state is BrowserSessionState.FAILED and job_state(db, ready_job) is S.FAILED
+    assert not browser.is_alive(sid)
+    assert any(s["label"] == "failed" for s in session.screenshots)
 
 
 def test_missing_form_and_apply_button(

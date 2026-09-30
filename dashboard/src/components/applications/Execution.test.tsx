@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { availableModes, canSubmit, liveBlockReason, modeChips, modeView, screenshotUrl, sessionSteps } from "@/lib/execution";
+import { availableModes, canSubmit, failureText, liveBlockReason, modeChips, modeView, screenshotUrl, sessionSteps } from "@/lib/execution";
 import { isAllowedProxyPath } from "@/lib/proxy";
 import type { ApplicationDetail, BrowserSessionView, ExecutionModeStatus } from "@/lib/types";
 import { ExecutionBanner } from "./ExecutionBanner";
@@ -119,5 +119,14 @@ describe("execution mode bar", () => {
 
   it("never hides the mode, even when the backend is offline", () => {
     expect(modeChips(null)[0].label).toMatch(/UNKNOWN/);
+  });
+});
+
+describe("failed runs", () => {
+  it("names the step that failed and says nothing was left running", () => {
+    const text = failureText({ failed: true, failed_stage: "fill_application_field", error: "renderer crashed" });
+    expect(text).toContain("Failed at fill application field: renderer crashed");
+    expect(text).toContain("screenshot was saved");
+    expect(failureText({ failed: true })).toContain("Failed at the browser run: unknown error");
   });
 });

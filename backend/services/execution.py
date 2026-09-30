@@ -691,7 +691,10 @@ def open_application(ctx: ExecContext, job_id: uuid.UUID) -> dict[str, Any]:
     if existing is not None and not resuming:
         if state not in (S.APPLICATION_IN_PROGRESS, S.READY_FOR_SUBMISSION):
             raise ExecutionError("PRECONDITION_FAILED", f"Job is {state.value}")
-        _ensure_page(ctx, existing, job, app)
+        try:
+            _ensure_page(ctx, existing, job, app)
+        except (BrowserError, ExecutionError) as exc:
+            return _fail(ctx, existing, job, app, f"Could not restore the application page: {exc}")
         ctx.db.commit()
         return result(existing, job, reused=True, note="Session already open")
     if resuming:
@@ -720,7 +723,10 @@ def open_application(ctx: ExecContext, job_id: uuid.UUID) -> dict[str, Any]:
     url = job.application_url or job.url
     if resuming:
         assert existing is not None
-        return _resume_session(ctx, existing, job, app)
+        try:
+            return _resume_session(ctx, existing, job, app)
+        except (BrowserError, ExecutionError) as exc:
+            return _fail(ctx, existing, job, app, f"Could not resume the application page: {exc}")
     session = BrowserSession(
         application_id=app.id,
         job_id=job.id,
@@ -805,19 +811,46 @@ def _resume_session(
 
 
 def _fail(
-    ctx: ExecContext, session: BrowserSession, job: Job, app: Application, message: str
+    ctx: ExecContext,
+    session: BrowserSession,
+    job: Job,
+    app: Application,
+    message: str,
+    details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """A failure PIE cannot recover from on its own (REQUIREMENTS 12): take a screenshot, log
+    the error with the step it happened at, mark the job FAILED and close the browser page.
+    Nothing is retried automatically; the user retries failed jobs themselves."""
+    stage = ctx.tool or "execution"
+    _shoot(ctx, session, "failed")  # before closing: shows what the page looked like
     session.state = B.FAILED
-    session.current_step = "Failed"
-    session.errors = [*(session.errors or []), {"step": ctx.tool, "error": message[:500]}]
+    session.current_step = f"Failed at {stage}"
+    session.errors = [*(session.errors or []), {"step": stage, "error": message[:500]}]
     app.last_error = message[:2000]
+    app.next_action = "Failed: check the error and screenshot, then retry the job yourself"
     if job.pipeline_state in (S.APPLICATION_IN_PROGRESS, S.READY_FOR_SUBMISSION):
         _move(ctx, job, app, S.FAILED, message)
-    _log(ctx, session, message, ExternalActionResult.FAILED, error=message)
+    _event(ctx, job, app, "execution_failed", message, {"stage": stage, **(details or {})})
+    _log(ctx, session, f"Failed at {stage}: {message}", ExternalActionResult.FAILED, error=message)
     ctx.db.commit()
     with contextlib.suppress(BrowserError):
         ctx.browser.close(str(session.id))
-    return result(session, job, failed=True, error=message)
+    return result(session, job, failed=True, error=message, failed_stage=stage)
+
+
+def fail_session(
+    ctx: ExecContext, session_id: uuid.UUID, message: str, details: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    """Fail an active session after an error (see ``_fail``). A session that already ended, or
+    that is paused for the user, is left alone. Returns the failure result, or None."""
+    ctx.db.rollback()  # drop half-done changes from the failed step; keep what was committed
+    session = ctx.db.get(BrowserSession, session_id)
+    if session is None or session.state not in ACTIVE or session.state is B.WAITING_FOR_USER:
+        return None
+    job, app = ctx.db.get(Job, session.job_id), ctx.db.get(Application, session.application_id)
+    if job is None or app is None:
+        return None
+    return _fail(ctx, session, job, app, message, details)
 
 
 # --- inspect ------------------------------------------------------------------------------
@@ -1576,11 +1609,33 @@ def run_execution(ctx: ExecContext, job_id: uuid.UUID) -> dict[str, Any]:
         check_live(ctx.settings)
     steps: list[dict[str, Any]] = []
     ctx.tool = "open_application"
-    out = open_application(ctx, job_id)
+    out = open_application(ctx, job_id)  # refusals here happen before any session exists
     steps.append({"step": "open", "state": out["state"]})
     sid = uuid.UUID(out["session_id"])
     if out.get("failed") or out["blocked_needs_user"]:
         return {**out, "steps": steps}
+    try:
+        return _run_steps(ctx, sid, steps)
+    except ExecutionError as exc:
+        message, details = exc.message, {"code": exc.code, **exc.details}
+    except BrowserError as exc:
+        message, details = f"Browser error: {exc}", {"code": "BROWSER_ERROR"}
+    except Exception as exc:  # a bug must not leave the job stuck "in progress"
+        logger.exception("Browser execution failed at %s", ctx.tool)
+        message = f"Unexpected error: {type(exc).__name__}: {exc}"
+        details = {"code": "INTERNAL_ERROR"}
+    steps.append({"step": ctx.tool, "error": message, "details": details})
+    failed = fail_session(ctx, sid, message, details)
+    if failed is None:  # the session had already ended or is waiting for the user
+        session = ctx.db.get(BrowserSession, sid)
+        assert session is not None
+        failed = result(session, *_job_of(ctx, session))
+    return {**failed, "error": message, "steps": steps, "details": details}
+
+
+def _run_steps(ctx: ExecContext, sid: uuid.UUID, steps: list[dict[str, Any]]) -> dict[str, Any]:
+    """inspect -> fill -> upload -> prepare -> (dry run) close. Any error is raised to
+    ``run_execution``, which fails the session cleanly."""
     session = ctx.db.get(BrowserSession, sid)
     assert session is not None
     if session.state in (B.OPEN, B.FORM_DETECTED, B.FILLING):
@@ -1607,19 +1662,8 @@ def run_execution(ctx: ExecContext, job_id: uuid.UUID) -> dict[str, Any]:
         except ExecutionError as exc:
             steps.append({"step": "upload", "error": exc.message, "details": exc.details})
     ctx.tool = "prepare_submission"
-    try:
-        out = prepare_submission(ctx, sid)
-        steps.append({"step": "prepare", "ready": out.get("ready")})
-    except ExecutionError as exc:
-        steps.append({"step": "prepare", "error": exc.message, "details": exc.details})
-        session.current_step = f"Stopped before submission: {exc.message}"
-        ctx.db.commit()
-        return {
-            **result(session, *_job_of(ctx, session)),
-            "steps": steps,
-            "error": exc.message,
-            "details": exc.details,
-        }
+    out = prepare_submission(ctx, sid)  # a form that is not ready fails the run (REQUIREMENTS 9)
+    steps.append({"step": "prepare", "ready": out.get("ready")})
     if out["blocked_needs_user"] or ctx.mode is BrowserExecutionMode.LIVE:
         return {**out, "steps": steps}
     ctx.tool = "close_application_session"

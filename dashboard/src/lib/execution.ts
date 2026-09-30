@@ -81,3 +81,11 @@ export function canSubmit(s: BrowserSessionView, liveEnabled: boolean): boolean 
 export function screenshotUrl(appId: string, sessionId: string, index: number): string {
   return `/backend/api/applications/${encodeURIComponent(appId)}/sessions/${encodeURIComponent(sessionId)}/screenshots/${index}`;
 }
+
+/** What the user sees when a browser run failed (the backend already saved a screenshot,
+ * logged the error, closed the page and marked the job failed). */
+export function failureText(data: Record<string, unknown>): string {
+  const stage = String(data.failed_stage ?? "the browser run").replace(/_/g, " ");
+  const error = String(data.error ?? "unknown error");
+  return `Failed at ${stage}: ${error}. A screenshot was saved and the job is marked failed; retry it yourself when ready.`;
+}
