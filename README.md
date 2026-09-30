@@ -66,6 +66,8 @@ python -m backend.scripts.jobs discover                  # all enabled sources (
 python -m backend.scripts.jobs discover --source mock    # offline fixtures, no network
 python -m backend.scripts.jobs analyze --limit 10        # Claude analysis + shortlist rules
 python -m backend.scripts.jobs runs                      # recent runs and their counts
+python -m backend.scripts.jobs failed                    # jobs whose application failed: step, error, screenshot
+python -m backend.scripts.jobs retry <job_id>            # YOU put one failed job back in the queue (nothing is run)
 ```
 
 The dashboard's **Jobs** page runs the same steps with **Discover jobs** and **Analyze & shortlist**, and shows live progress.
@@ -86,7 +88,7 @@ Once a day, PIE runs discovery on every enabled source, then Claude analysis of 
 - **Run it now.** Use `python -m backend.scripts.daily run` (add `--json` for the full report), or `POST /api/daily-run`. `python -m backend.scripts.daily status` shows the schedule and the latest report.
 - **Turn it off.** Set `DAILY_RUN_ENABLED=false` in `.env` and restart the API. Manual runs still work.
 - **Without the API running.** You can schedule the CLI with Windows Task Scheduler instead, for example `schtasks /Create /SC DAILY /ST 07:00 /TN "PIE daily run" /TR "<repo>\.venv\Scripts\python.exe -m backend.scripts.daily run"`. PIE does not register this for you.
-- **Idempotent.** Jobs are deduplicated. Only never-analyzed (or failed) FRESH jobs go to Claude. STALE and UNKNOWN jobs are ineligible, so they are not sent. A stale job never becomes fresh by being rediscovered. An UNKNOWN job is reconsidered only if its own source later publishes a post date.
+- **Idempotent.** Jobs are deduplicated. Only never-analyzed FRESH jobs (including ones whose analysis failed) go to Claude. A job whose *application* failed is never re-analyzed or re-shortlisted automatically; only you can retry it (`jobs retry <job_id>`). STALE and UNKNOWN jobs are ineligible, so they are not sent. A stale job never becomes fresh by being rediscovered. An UNKNOWN job is reconsidered only if its own source later publishes a post date.
 - **History.** Each run is an agent run of type `daily`, with one child discovery run per source and one analysis run. Its report (counts, per-source results, failures, newly shortlisted / READY_TO_APPLY jobs) is on the dashboard overview and at `GET /api/daily-run`.
 
 ## Aggregator leads (off by default)

@@ -35,12 +35,14 @@ from database.state_machine import assert_transition
 
 logger = logging.getLogger(__name__)
 
+# FAILED is not here on purpose: a job is FAILED only when its application failed, and only
+# the user may bring it back (backend.services.failed_jobs.retry_failed_job). A failed
+# *analysis* leaves the job DISCOVERED (with last_error), so it is simply analyzed again.
 ANALYZABLE_STATES = {
     JobPipelineState.DISCOVERED,
     JobPipelineState.ANALYZED,
     JobPipelineState.SHORTLISTED,
     JobPipelineState.REJECTED_BY_AGENT,
-    JobPipelineState.FAILED,
 }
 MAX_ATTEMPTS = 2
 
@@ -321,7 +323,7 @@ def select_jobs_for_batch(
     limit: int,
     source: str | None = None,
 ) -> Select[Job]:
-    states = [JobPipelineState.DISCOVERED, JobPipelineState.FAILED]
+    states = [JobPipelineState.DISCOVERED]  # never FAILED: see ANALYZABLE_STATES
     if reanalyze:
         states += [
             JobPipelineState.ANALYZED,
@@ -351,7 +353,7 @@ def select_jobs_for_daily(
     """The jobs a daily run sends to the analyzer: FRESH ones only (STALE and UNKNOWN are
     ineligible for the shortlist anyway, so analyzing them would only spend Claude calls).
 
-    - DISCOVERED / FAILED jobs that are fresh now (FAILED = a failed analysis to retry);
+    - DISCOVERED jobs that are fresh now (including ones whose analysis failed before);
     - REJECTED_BY_AGENT jobs whose latest analysis saw them as UNKNOWN and whose own source
       has since published a post date that makes them fresh. Nothing else is re-analyzed.
     """
@@ -359,7 +361,7 @@ def select_jobs_for_daily(
     pending = db.scalars(
         select(Job.id)
         .where(
-            Job.pipeline_state.in_([JobPipelineState.DISCOVERED, JobPipelineState.FAILED]),
+            Job.pipeline_state == JobPipelineState.DISCOVERED,  # never FAILED (user retries)
             Job.duplicate_of_id.is_(None),
             fresh,
         )

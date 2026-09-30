@@ -22,9 +22,11 @@ from agent.tools.base import ToolErrorCode, ToolResult
 from backend.core.config import Settings
 from backend.core.profile import UserProfile
 from backend.services import execution as svc
+from database.base import utcnow
 from database.enums import (
     BrowserExecutionMode,
     BrowserSessionState,
+    EventSource,
     ExecutionMode,
     ExternalActionResult,
     JobPipelineState,
@@ -1973,3 +1975,117 @@ def test_agent_run_that_completes_after_a_dry_run_closes_it_normally(
     session = db.get(BrowserSession, uuid.UUID(_latest_session(session_factory)))
     assert session is not None and session.state is BrowserSessionState.CLOSED  # a success
     assert job_state(db, ready_job) is S.READY_TO_APPLY and site.submissions == []
+
+
+# --- B4: failed jobs are never re-scored automatically; the user retries them -------------
+
+
+@pytest.fixture
+def failed_job(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+) -> uuid.UUID:
+    """A job whose application really failed in the browser (a page without a form)."""
+    use_case(db, ready_job, site, "noform")
+    job = db.get(Job, ready_job)
+    assert job is not None
+    job.posted_at = utcnow()  # fresh: exactly the jobs automatic analysis looks at
+    db.commit()
+    out = svc.run_execution(ectx(db, exec_settings, exec_profile, browser), ready_job)
+    assert out["failed"] is True and job_state(db, ready_job) is S.FAILED
+    return ready_job
+
+
+def test_failed_jobs_are_not_picked_for_automatic_analysis(
+    db: Session, failed_job: uuid.UUID
+) -> None:
+    from backend.services.analysis import select_jobs_for_batch, select_jobs_for_daily
+
+    now = utcnow()
+    batch = db.scalars(select_jobs_for_batch(now, 48, True, True, 100)).all()
+    assert failed_job not in {j.id for j in batch}
+    assert failed_job not in select_jobs_for_daily(db, now, 48, 100)
+
+
+def test_failed_job_cannot_be_reanalyzed_by_the_agent_or_the_service(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    failed_job: uuid.UUID,
+) -> None:
+    from backend.services.analysis import NotAnalyzableError, analyze_job
+
+    ctx = tctx(db, exec_settings, exec_profile, browser, ExecutionMode.INTERNAL_WRITES)
+    res = call(ctx, "analyze_job", job_id=failed_job)
+    assert not res.ok and job_state(db, failed_job) is S.FAILED
+    job = db.get(Job, failed_job)
+    assert job is not None
+    with pytest.raises(NotAnalyzableError):
+        analyze_job(db, job, None, None)  # type: ignore[arg-type]  # refused before use
+    assert job_state(db, failed_job) is S.FAILED
+
+
+def test_failed_jobs_are_listed_with_stage_error_and_screenshot(
+    db: Session, exec_settings: Settings, failed_job: uuid.UUID
+) -> None:
+    from backend.services.failed_jobs import list_failed_jobs
+
+    [item] = list_failed_jobs(db)
+    assert item.job_id == str(failed_job) and item.stage == "inspect_application_form"
+    assert item.error and "No application form" in item.error
+    assert item.screenshot and (exec_settings.application_artifacts_dir / item.screenshot).is_file()
+    assert item.retries == 0 and item.failed_at is not None
+
+
+def test_user_retry_puts_the_job_back_and_it_can_run_again(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    failed_job: uuid.UUID,
+    site: ApplySite,
+) -> None:
+    from backend.services.failed_jobs import RetryError, list_failed_jobs, retry_failed_job
+
+    job = retry_failed_job(db, exec_settings, exec_profile, failed_job)
+    assert job.pipeline_state is S.READY_TO_APPLY  # draft, resume and answers still complete
+    events = db.scalars(
+        select(ApplicationEvent).where(ApplicationEvent.event_type == "retried_by_user")
+    ).all()
+    assert len(events) == 1 and events[0].source is EventSource.USER
+    assert list_failed_jobs(db) == []
+    with pytest.raises(RetryError, match="only FAILED jobs"):
+        retry_failed_job(db, exec_settings, exec_profile, failed_job)
+    # A retry only re-queues: running it again is a separate, explicit step.
+    use_case(db, failed_job, site, "normal")
+    out = svc.run_execution(ectx(db, exec_settings, exec_profile, browser), failed_job)
+    assert out["dry_run_complete"] is True and site.submissions == []
+
+
+def test_retry_api_and_cli(
+    db: Session,
+    session_factory: Any,
+    client: Any,
+    failed_job: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from backend.scripts import jobs as jobs_cli
+
+    listed = client.get("/api/jobs/failed").json()
+    assert listed["total"] == 1 and listed["items"][0]["stage"] == "inspect_application_form"
+    assert client.post(f"/api/jobs/{uuid.uuid4()}/retry").status_code == 404
+
+    monkeypatch.setattr(jobs_cli, "get_session_factory", lambda: session_factory)
+    assert jobs_cli.main(["failed"]) == 0
+    assert str(failed_job) in capsys.readouterr().out
+    res = client.post(f"/api/jobs/{failed_job}/retry")
+    assert res.status_code == 200 and res.json()["status"] != "FAILED"
+    assert client.post(f"/api/jobs/{failed_job}/retry").status_code == 409  # not failed now
+    assert jobs_cli.main(["retry", str(failed_job)]) == 1  # the CLI refuses the same way
+    assert "only FAILED jobs" in capsys.readouterr().out

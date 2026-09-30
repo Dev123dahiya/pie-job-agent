@@ -51,6 +51,7 @@ from backend.services.analysis import (
     select_jobs_for_batch,
 )
 from backend.services.discovery import DiscoveryService, create_discovery_run
+from backend.services.failed_jobs import RetryError, list_failed_jobs, retry_failed_job
 from backend.services.freshness import freshness_filter
 from backend.services.readiness import evaluate_readiness
 from backend.services.resumes import locate_master_resume
@@ -246,6 +247,14 @@ def list_shortlisted(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/failed")
+def failed_jobs(db: DB, limit: int = Query(100, ge=1, le=500)) -> dict[str, Any]:
+    """Jobs whose application failed: error, the step it failed at, screenshot, retries.
+    PIE never retries these by itself (REQUIREMENTS 12)."""
+    items = [f.as_dict() for f in list_failed_jobs(db, limit=limit)]
+    return {"items": items, "total": len(items)}
 
 
 @router.get("/filters", response_model=JobFilterOptions)
@@ -455,6 +464,23 @@ def analyze_one(
         raise HTTPException(502, str(exc)) from exc
     db.refresh(job)
     return _detail(db, job, profile, settings)
+
+
+@router.post("/{job_id}/retry")
+def retry_job(
+    job_id: uuid.UUID,
+    db: DB,
+    settings: Annotated[Settings, Depends(get_settings)],
+    profile: Annotated[UserProfile, Depends(profile_dep)],
+) -> dict[str, Any]:
+    """The user's manual retry of ONE failed job: it goes back in the queue (READY_TO_APPLY,
+    or SHORTLISTED / BLOCKED_NEEDS_USER by the normal readiness rules). Nothing is opened
+    or submitted, and the analysis is not re-run."""
+    try:
+        job = retry_failed_job(db, settings, profile, job_id)
+    except RetryError as exc:
+        raise HTTPException(404 if "No job" in str(exc) else 409, str(exc)) from exc
+    return {"job_id": str(job.id), "status": job.pipeline_state.value}
 
 
 @router.post("/{job_id}/application-draft", response_model=ToolResultOut)
