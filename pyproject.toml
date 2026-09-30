@@ -11,7 +11,6 @@ dependencies = [
     "pydantic-settings>=2.5",
     "sqlalchemy>=2.0.36",
     "alembic>=1.14",
-    "psycopg[binary]>=3.2",
     "pyyaml>=6.0",
     "tzdata>=2024.1",  # IANA zones for zoneinfo on Windows
     "httpx2>=2.0",
@@ -22,6 +21,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+postgres = [
+    "psycopg[binary]>=3.2",  # only for DATABASE_URL=postgresql+psycopg://... (SQLite is the default)
+]
 dev = [
     "pytest>=8.3",
     "ruff>=0.7",

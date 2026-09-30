@@ -14,7 +14,7 @@ os.environ["DAILY_RUN_ENABLED"] = "false"
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, event
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -32,17 +32,10 @@ from integrations.job_sources.mock import MockSource
 
 @pytest.fixture
 def engine() -> Iterator[Engine]:
-    from sqlalchemy import create_engine
+    from database.session import build_engine
 
-    eng = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-
-    @event.listens_for(eng, "connect")
-    def _fk_on(dbapi_conn, _):  # type: ignore[no-untyped-def]
-        dbapi_conn.execute("PRAGMA foreign_keys=ON")
+    # The app's own SQLite setup (foreign keys, busy timeout, savepoints), in memory.
+    eng = build_engine("sqlite+pysqlite:///:memory:", poolclass=StaticPool)
 
     Base.metadata.create_all(eng)
     yield eng

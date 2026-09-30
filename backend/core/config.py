@@ -25,7 +25,9 @@ class Settings(BaseSettings):
     # When true: never submit real applications; use mock jobs/forms/emails.
     development_mode: bool = True
 
-    database_url: str = "postgresql+psycopg://pie:pie@localhost:5432/pie_job_agent"
+    # SQLite file under data/ (git-ignored). PostgreSQL also works: set DATABASE_URL, e.g.
+    # postgresql+psycopg://pie:pie@localhost:5432/pie_job_agent (pip install -e ".[postgres]").
+    database_url: str = f"sqlite+pysqlite:///{(REPO_ROOT / 'data' / 'pie.db').as_posix()}"
     database_echo: bool = False
 
     cors_origins: list[str] = Field(

@@ -6,7 +6,7 @@ A personal job-search and application agent. Claude does the reasoning. PIE prov
 
 ## Stack
 
-- **Backend:** FastAPI, Pydantic, SQLAlchemy 2, Alembic, PostgreSQL
+- **Backend:** FastAPI, Pydantic, SQLAlchemy 2, Alembic, SQLite (PostgreSQL optional)
 - **Dashboard:** Next.js 16, React 19, TypeScript, Tailwind CSS 4
 - **Job analysis:** Claude, through the Anthropic API or your local Claude Code CLI
 - **Later phases:** Playwright (browser), Gmail API, XLSX export
@@ -16,7 +16,8 @@ A personal job-search and application agent. Claude does the reasoning. PIE prov
 
 - Python 3.11+ (developed on 3.14)
 - Node.js 20+ (developed on 24)
-- PostgreSQL 15+, either through Docker (`docker compose`) or a local install
+- Nothing else: the database is a SQLite file (`data/pie.db`), created by `alembic upgrade head`.
+  PostgreSQL 15+ is optional (see "Using PostgreSQL" below).
 
 ## Setup
 
@@ -26,22 +27,33 @@ cp .env.example .env
 cp config/user_profile.example.yaml config/user_profile.yaml   # then edit with your real details
 cp dashboard/.env.example dashboard/.env.local
 
-# 2. Database (PostgreSQL in Docker)
-docker compose up -d postgres
-
-# 3. Backend
+# 2. Backend
 python -m venv .venv
 .venv/Scripts/activate            # Windows  (macOS/Linux: source .venv/bin/activate)
 pip install -e ".[dev]"
-alembic upgrade head
+alembic upgrade head              # creates/updates data/pie.db (SQLite)
 python -m backend.scripts.seed_mock      # optional: fictional demo data (dev mode only)
 python -m backend.serve --reload       # http://127.0.0.1:8000 (this computer only)
 
-# 4. Dashboard (new terminal)
+# 3. Dashboard (new terminal)
 cd dashboard
 npm install
 npm run dev                       # http://127.0.0.1:3000 (this computer only)
 ```
+
+### Using PostgreSQL instead (optional)
+
+```bash
+pip install -e ".[postgres]"
+docker compose up -d postgres
+# in .env:
+# DATABASE_URL=postgresql+psycopg://pie:pie@localhost:5432/pie_job_agent
+alembic upgrade head
+```
+
+On Windows, an Application Control / Smart App Control policy can block psycopg's DLL
+("DLL load failed ... An Application Control policy has blocked this file"). SQLite has no such
+dependency, which is why it is the default.
 
 ## Discover and shortlist jobs
 
