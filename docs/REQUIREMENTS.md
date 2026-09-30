@@ -110,3 +110,97 @@ Phase F: items in section 15
 - Notice period: [X days]
 - Willing to relocate: [Yes/No]
 - Companies to exclude: [optional]
+
+=== 19. DASHBOARD ===
+
+--- 19.1 General rules ---
+- Keep the existing stack: Next.js + React dashboard, FastAPI backend. Don't switch frameworks. Ask me before adding any new library.
+- All safety rules live in the backend, never only in the dashboard: daily limits, dry-run guard, min score, live-mode double switch, never-guess answers. The dashboard can never bypass them.
+- The dashboard runs only on my laptop: bind to 127.0.0.1, never 0.0.0.0.
+- Every page has proper loading, empty and error states. Pages for features that aren't built yet show a clear "Available after Phase X" message instead of fake data.
+- Show my six statuses (found / skipped / applied / needs input / manual / failed) everywhere, with PIE's detailed status available underneath.
+- Clean, consistent design with light and dark mode. Desktop-first, but usable on a phone screen.
+- Pages refresh automatically every few seconds while a run is in progress.
+
+--- 19.2 Pages ---
+
+1. Home (overview)
+- Current mode per platform (dry-run / review / auto), shown clearly at the top. If live mode is on anywhere, show a visible warning banner.
+- Today's applications vs daily limits: total and per platform (Naukri, LinkedIn, company sites), as progress bars.
+- Counts per status for today and for all time.
+- Login status per platform (logged in / expired / never logged in), with the exact command to log in again.
+- Last run summary and the 10 most recent events.
+- Quick links: "Needs my input (X)", "Manual apply (X)", "Failed (X)", "Waiting for review (X)".
+
+2. Jobs
+- Table with search, sorting and filters: platform, status, match score range, date, company, location, apply type.
+- Job detail page: full description, match score and reason, the individual scoring dimensions, apply type, duplicates found on other sites, and a link to the original posting.
+- Actions: skip, move to shortlist, retry analysis, open original.
+
+3. Review queue
+- Every application waiting for my yes/no in review mode.
+- Shows the job, match score and reason, the resume that will be used, and the answers that will be filled (label + "Filled from: notice_period", with AI-suggested answers clearly marked).
+- For Naukri: shows what will be sent before Apply is clicked.
+- Buttons: Approve, Reject, Open job. Approve/reject one at a time, or several at once, with a confirmation.
+
+4. Applications
+- Table of all applications with filters by platform, status and date.
+- Detail page: timeline of every step from the audit log, resume used (locked badge if submitted or in progress), answers used (masked as above), screenshots, and errors.
+
+5. Needs my input
+- Every paused job with the exact question(s) it couldn't answer.
+- A form to answer each question once. The answer is saved to my reusable saved answers, and the job goes back into the queue.
+- Show which saved answers already exist, and let me edit or delete them.
+
+6. Manual apply list
+- Jobs I need to apply to myself, with company, title, score, and a direct link.
+- "Mark as applied" and "Skip" buttons, so they're tracked like the others.
+
+7. Failed
+- Failed jobs with the error, the stage it failed at, the screenshot, and the date.
+- A "Retry" button per job (manual only, as in section 12) and "Retry all selected".
+
+8. Resumes
+- My master resume, all tailored versions, which job each was made for, and which applications use it.
+- Preview and download buttons, and a locked badge on resumes linked to submitted or in-progress applications.
+
+9. Runs (agent control)
+- Start a run: choose the steps (discover / analyze / tailor / apply), the platforms, and the mode. Dry-run is always pre-selected.
+- Switching to live requires a second confirmation that names the platform and the remaining daily limit.
+- A Stop button that safely stops after the current job.
+- Live progress while running, and a history of past runs with their summaries.
+
+10. Emails (after Gmail integration, Phase F)
+- Replies, interview invites and rejections, each linked to its application.
+- The application's status updates automatically, and I can correct it.
+
+11. Logs
+- Searchable logs with filters for level, run, platform and date.
+- Secrets always redacted.
+- Download a filtered log file.
+
+12. Settings
+- Edit search settings: keywords, locations, experience range, job freshness, excluded companies and keywords.
+- Edit limits: total and per platform.
+- Edit min_match_score and the model used for each task.
+- Mode per platform. Auto mode can only be switched on for a platform after it has at least one successful dry-run and one successful review-mode run, and needs a confirmation.
+- Edit my standard profile answers.
+- Every save: validate the values, back up the old config file, show me what changed, then save.
+
+13. Analytics
+- Applications per day (chart), by platform.
+- Funnel per platform: found → shortlisted → applied → replied → interview.
+- Match score distribution, and top skipped reasons.
+- Reply rate and interview rate once Gmail is connected.
+
+--- 19.3 Backend and testing ---
+- Every page gets FastAPI endpoints with proper input validation. No business logic in the frontend.
+- Tests for every new endpoint, including tests proving the dashboard can't bypass limits, dry-run or the live-mode switch.
+- The full test suite stays green after every step.
+
+--- 19.4 Order ---
+Don't build the dashboard as one big block. Build each page alongside the backend feature it shows:
+- Pages that only need existing data (Jobs, Applications, Resumes, Logs, Home basics): add them as a Dashboard phase right after Phase B.
+- Review queue, Needs my input, Manual apply, Failed, Runs: build them with Phase C (Naukri), since that's when they get real data.
+- Settings: build during Phase C, since the limits and modes come in then.
+- Emails and Analytics reply rates: Phase F.
