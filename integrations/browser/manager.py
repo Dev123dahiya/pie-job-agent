@@ -17,6 +17,7 @@ import queue
 import threading
 from collections.abc import Callable
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypeVar
@@ -122,7 +123,13 @@ class BrowserManager:
         self._ensure_thread()
         fut: Future[T] = Future()
         self._queue.put((fn, fut))
-        return fut.result(timeout=timeout or (self.timeout_ms / 1000) * 4 + 30)
+        wait = timeout or (self.timeout_ms / 1000) * 4 + 30
+        try:
+            return fut.result(timeout=wait)
+        except FutureTimeout as exc:  # a hung page: report it like any other browser failure
+            fut.cancel()
+            message = f"The browser did not respond within {wait:.0f}s"
+            raise BrowserError("TIMEOUT", message) from exc
 
     def shutdown(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -279,6 +286,11 @@ class BrowserManager:
         # Long-polling pages never go idle; the DOM is loaded already.
         with contextlib.suppress(Exception):
             page.wait_for_load_state("networkidle", timeout=5_000)
+
+    def start(self) -> None:
+        """Launch the browser now (no page), so a browser that cannot start is reported before
+        PIE creates a session or changes a job."""
+        self._call(self._launch)
 
     def is_alive(self, sid: str) -> bool:
         def op() -> bool:
@@ -441,7 +453,7 @@ class BrowserManager:
 
         return self._call(op)
 
-    def screenshot(self, sid: str, path: Path) -> Path:
+    def screenshot(self, sid: str, path: Path, timeout: float | None = None) -> Path:
         """Full-page screenshot; password and one-time-code inputs are masked."""
 
         def op() -> Path:
@@ -455,7 +467,7 @@ class BrowserManager:
             page.screenshot(path=str(path), full_page=True, mask=mask)
             return path
 
-        return self._call(op)
+        return self._call(op, timeout)
 
     def close(self, sid: str) -> None:
         self._call(lambda: self._close_live(sid))

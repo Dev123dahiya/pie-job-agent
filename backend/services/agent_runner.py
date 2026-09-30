@@ -236,7 +236,57 @@ class AgentRunner:
                 run = db.get(AgentRun, run_id) or run
                 log = RunLogger(db, run)
                 self._fail(db, run, log, f"Unexpected error: {type(exc).__name__}: {exc}")
+            try:
+                self._end_browser_sessions(db, run)
+            except Exception:  # cleanup must not hide the run's own outcome
+                logger.exception("Could not clean up the browser sessions of run %s", run_id)
             return run
+
+    def _end_browser_sessions(self, db: Session, run: AgentRun) -> None:
+        """When a run ends, no browser page it opened may stay "in progress" (REQUIREMENTS 12).
+
+        Kept open on purpose: every session while the run waits for the user
+        (NEEDS_USER_INPUT, resumable), a session paused for the user, and a LIVE session
+        ready for the user's own confirmation. A dry run that reached the pre-submission
+        point is closed normally (it succeeded). Anything else is failed cleanly."""
+        from backend.services import execution as svc
+        from database.enums import BrowserExecutionMode, BrowserSessionState
+        from database.models import BrowserSession
+
+        if run.status in (AgentRunStatus.NEEDS_USER_INPUT, AgentRunStatus.RUNNING):
+            return
+        B = BrowserSessionState
+        open_sessions = db.scalars(
+            select(BrowserSession).where(
+                BrowserSession.run_id == run.id, BrowserSession.state.in_(svc.ACTIVE)
+            )
+        ).all()
+        if not open_sessions:
+            return
+        browser = self.browser
+        if browser is None:
+            from integrations.browser import get_browser_manager
+
+            browser = get_browser_manager(self.settings)
+        for session in open_sessions:
+            live = session.mode is BrowserExecutionMode.LIVE
+            if session.state is B.WAITING_FOR_USER or (
+                live and session.state is B.READY_FOR_SUBMISSION
+            ):
+                continue
+            ctx = svc.ExecContext(
+                db=db, settings=self.settings, profile=self.profile_loader(), browser=browser,
+                mode=session.mode, run=run, tool="end_of_agent_run",
+            )  # fmt: skip
+            if not live and session.state is B.READY_FOR_SUBMISSION:
+                svc.close_session(ctx, session.id)
+                continue
+            svc.fail_session(
+                ctx,
+                session.id,
+                f"The agent run ended ({run.status.value}) before this application was finished",
+                {"code": "RUN_ENDED", "run_status": run.status.value},
+            )
 
     # -- internals --
 

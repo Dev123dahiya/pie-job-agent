@@ -39,7 +39,7 @@ from database.models import (
     Job,
     SubmissionAttempt,
 )
-from integrations.browser import BrowserManager
+from integrations.browser import BrowserError, BrowserManager
 from tests.conftest import FakeClaude, good_resume
 from tests.fixtures.apply_site import ApplySite
 
@@ -1254,6 +1254,7 @@ def test_no_tool_accepts_code_urls_selectors_paths_or_values() -> None:
 def test_browser_manager_exposes_only_fixed_operations() -> None:
     public = {n for n in dir(BrowserManager) if not n.startswith("_")}
     assert public == {
+        "start",  # launch only: no page, no caller-supplied code
         "open",
         "is_alive",
         "snapshot",
@@ -1799,3 +1800,176 @@ def test_blocked_forms_can_never_be_submitted_even_live(
     assert site.submissions == []
     assert db.scalar(select(func.count()).select_from(SubmissionAttempt)) == 0
     assert job_state(db, ready_job) is S.BLOCKED_NEEDS_USER
+
+
+# --- B3 hardening: dead pages, hung cleanup, leaks, end of agent runs, browser start -------
+
+
+def _contexts(browser: BrowserManager) -> int:
+    """Open browser contexts (one per session): a leak shows up here."""
+    return browser._call(lambda: len(browser._browser.contexts) if browser._browser else 0)
+
+
+def test_really_dead_page_still_ends_failed(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The real page is closed underneath PIE while it fills; the screenshot then fails too."""
+    real_fill = browser.fill
+
+    def fill_then_die(sid: str, *args: Any) -> bool:
+        browser.crash_for_test(sid)  # a real dead page, not a raised exception
+        return real_fill(sid, *args)
+
+    before = _contexts(browser)
+    monkeypatch.setattr(browser, "fill", fill_then_die)
+    out = svc.run_execution(ectx(db, exec_settings, exec_profile, browser), ready_job)
+    assert out["failed"] is True and job_state(db, ready_job) is S.FAILED
+    session = db.get(BrowserSession, uuid.UUID(out["session_id"]))
+    assert session is not None and session.state is BrowserSessionState.FAILED
+    assert not any(s["label"] == "failed" for s in session.screenshots)  # nothing to photograph
+    assert any("screenshot failed" in e["error"] for e in session.errors)
+    assert not browser.is_alive(str(session.id)) and _contexts(browser) == before
+
+
+def test_cleanup_finishes_when_screenshot_and_close_fail(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    use_case(db, ready_job, site, "noform")
+    real_close = browser.close
+
+    def hung_screenshot(*_: Any, **__: Any) -> None:
+        raise TimeoutError("page did not respond")
+
+    def broken_close(sid: str) -> None:
+        real_close(sid)  # (free the real page so the module's browser stays clean)
+        raise RuntimeError("close failed")
+
+    monkeypatch.setattr(browser, "screenshot", hung_screenshot)
+    monkeypatch.setattr(browser, "close", broken_close)
+    out = svc.run_execution(ectx(db, exec_settings, exec_profile, browser), ready_job)
+    assert out["failed"] is True and job_state(db, ready_job) is S.FAILED
+    session = db.get(BrowserSession, uuid.UUID(out["session_id"]))
+    assert session is not None and session.state is BrowserSessionState.FAILED
+    errors = " ".join(e["error"] for e in session.errors)
+    assert "screenshot failed: TimeoutError" in errors and "closing the page failed" in errors
+
+
+def test_repeated_failures_leak_no_browser_contexts(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+) -> None:
+    use_case(db, ready_job, site, "noform")
+    before = _contexts(browser)
+    job = db.get(Job, ready_job)
+    assert job is not None
+    for _ in range(3):
+        out = svc.run_execution(ectx(db, exec_settings, exec_profile, browser), ready_job)
+        assert out["failed"] is True
+        job.pipeline_state = S.READY_TO_APPLY  # as a manual retry would
+        db.commit()
+    assert _contexts(browser) == before
+
+
+def test_browser_that_cannot_start_changes_nothing(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    ready_job: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def no_browser() -> None:
+        raise BrowserError("UNAVAILABLE", "No usable browser could be launched")
+
+    monkeypatch.setattr(browser, "start", no_browser)
+    with pytest.raises(svc.ExecutionError) as err:
+        svc.run_execution(ectx(db, exec_settings, exec_profile, browser), ready_job)
+    assert err.value.code == "BROWSER_ERROR" and "could not be started" in err.value.message
+    # Nothing started: no session, and the job is still ready (not failed, not in progress).
+    assert db.scalar(select(func.count()).select_from(BrowserSession)) == 0
+    assert job_state(db, ready_job) is S.READY_TO_APPLY
+
+
+def test_agent_run_that_ends_mid_application_fails_the_session(
+    db: Session,
+    session_factory: Any,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+) -> None:
+    """A recoverable stop leaves the page open for the agent; if the run then hits its step
+    limit, the page must not stay "in progress"."""
+    from backend.services.agent_runner import start_agent_run
+    from database.enums import AgentRunStatus
+    from database.models import AgentRun
+    from tests.conftest import decision
+
+    use_case(db, ready_job, site, "apply_button")
+
+    def sid(_: str) -> str:
+        return _latest_session(session_factory)
+
+    claude = FakeClaude(
+        decision(tool="open_application", job_id=str(ready_job)),
+        lambda p: decision(tool="inspect_application_form", session_id=sid(p)),
+    )
+    before = _contexts(browser)
+    run = start_agent_run(db, "Dry-run the application", mode="external_dry_run", max_iterations=2)
+    _runner(session_factory, exec_settings, exec_profile, browser, claude).execute(run.id)
+    db.expire_all()
+    ended = db.get(AgentRun, run.id)
+    assert ended is not None and ended.status is AgentRunStatus.FAILED  # iteration limit
+    session = db.get(BrowserSession, uuid.UUID(_latest_session(session_factory)))
+    assert session is not None and session.state is BrowserSessionState.FAILED
+    assert session.errors[-1]["step"] == "end_of_agent_run"
+    assert job_state(db, ready_job) is S.FAILED
+    assert not browser.is_alive(str(session.id)) and _contexts(browser) == before
+
+
+def test_agent_run_that_completes_after_a_dry_run_closes_it_normally(
+    db: Session,
+    session_factory: Any,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+) -> None:
+    from backend.services.agent_runner import start_agent_run
+    from tests.conftest import decision
+
+    def sid(_: str) -> str:
+        return _latest_session(session_factory)
+
+    claude = FakeClaude(
+        decision(tool="open_application", job_id=str(ready_job)),
+        lambda p: decision(tool="inspect_application_form", session_id=sid(p)),
+        lambda p: decision(tool="fill_application_field", session_id=sid(p), use_mapping=True),
+        lambda p: decision(tool="upload_application_resume", session_id=sid(p)),
+        lambda p: decision(tool="prepare_submission", session_id=sid(p)),
+        decision(action="complete", message="Prepared; forgot to close."),
+    )
+    run = start_agent_run(db, "Dry-run the application", mode="external_dry_run", max_iterations=12)
+    _runner(session_factory, exec_settings, exec_profile, browser, claude).execute(run.id)
+    db.expire_all()
+    session = db.get(BrowserSession, uuid.UUID(_latest_session(session_factory)))
+    assert session is not None and session.state is BrowserSessionState.CLOSED  # a success
+    assert job_state(db, ready_job) is S.READY_TO_APPLY and site.submissions == []

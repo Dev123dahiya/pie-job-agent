@@ -247,14 +247,24 @@ def _require_active(session: BrowserSession, *states: B) -> None:
         )
 
 
-def _shoot(ctx: ExecContext, session: BrowserSession, label: str) -> None:
+FAILURE_SCREENSHOT_TIMEOUT = 20.0  # seconds: a crashed page must not hold up the cleanup
+
+
+def _shoot(
+    ctx: ExecContext, session: BrowserSession, label: str, timeout: float | None = None
+) -> None:
+    """Best effort: a page that cannot be photographed is recorded, never an error."""
     root = ctx.settings.application_artifacts_dir
     n = len(session.screenshots or []) + 1
     rel = Path(str(session.application_id)) / str(session.id) / f"{n:02d}_{label}.png"
     try:
-        ctx.browser.screenshot(str(session.id), root / rel)
-    except BrowserError as exc:
-        session.errors = [*(session.errors or []), {"step": label, "error": str(exc)[:300]}]
+        if timeout is None:
+            ctx.browser.screenshot(str(session.id), root / rel)
+        else:
+            ctx.browser.screenshot(str(session.id), root / rel, timeout=timeout)
+    except Exception as exc:  # crashed or hung page, disk full...
+        error = f"screenshot failed: {type(exc).__name__}: {exc}"[:300]
+        session.errors = [*(session.errors or []), {"step": label, "error": error}]
         return
     session.screenshots = [
         *(session.screenshots or []),
@@ -720,6 +730,11 @@ def open_application(ctx: ExecContext, job_id: uuid.UUID) -> dict[str, Any]:
             "PRECONDITION_FAILED", "The validated tailored resume has no PDF artifact to upload"
         )
 
+    try:  # a browser that cannot start is reported before PIE creates a session or moves the job
+        ctx.browser.start()
+    except Exception as exc:
+        raise ExecutionError("BROWSER_ERROR", f"The browser could not be started: {exc}") from exc
+
     url = job.application_url or job.url
     if resuming:
         assert existing is not None
@@ -755,7 +770,7 @@ def open_application(ctx: ExecContext, job_id: uuid.UUID) -> dict[str, Any]:
         snap = ctx.browser.open(
             str(session.id), url, dry_run=ctx.mode is BrowserExecutionMode.DRY_RUN
         )
-    except BrowserError as exc:
+    except Exception as exc:  # BrowserError, or anything else: never leave the job in progress
         return _fail(ctx, session, job, app, f"Could not open the application page: {exc}")
     session.target_domain = snap.domain or session.target_domain
     _record_page(session, snap)
@@ -822,7 +837,7 @@ def _fail(
     the error with the step it happened at, mark the job FAILED and close the browser page.
     Nothing is retried automatically; the user retries failed jobs themselves."""
     stage = ctx.tool or "execution"
-    _shoot(ctx, session, "failed")  # before closing: shows what the page looked like
+    # 1. The outcome first, so the job ends up FAILED whatever the browser does next.
     session.state = B.FAILED
     session.current_step = f"Failed at {stage}"
     session.errors = [*(session.errors or []), {"step": stage, "error": message[:500]}]
@@ -833,8 +848,15 @@ def _fail(
     _event(ctx, job, app, "execution_failed", message, {"stage": stage, **(details or {})})
     _log(ctx, session, f"Failed at {stage}: {message}", ExternalActionResult.FAILED, error=message)
     ctx.db.commit()
-    with contextlib.suppress(BrowserError):
+    # 2. Best effort: what the page looked like, then free the page and its browser context.
+    #    Either may fail on a crashed or hung page; that is recorded, not raised.
+    _shoot(ctx, session, "failed", timeout=FAILURE_SCREENSHOT_TIMEOUT)
+    try:
         ctx.browser.close(str(session.id))
+    except Exception as exc:
+        error = f"closing the page failed: {type(exc).__name__}: {exc}"[:300]
+        session.errors = [*(session.errors or []), {"step": "close", "error": error}]
+    ctx.db.commit()
     return result(session, job, failed=True, error=message, failed_stage=stage)
 
 
