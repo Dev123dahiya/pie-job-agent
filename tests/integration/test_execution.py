@@ -2089,3 +2089,154 @@ def test_retry_api_and_cli(
     assert client.post(f"/api/jobs/{failed_job}/retry").status_code == 409  # not failed now
     assert jobs_cli.main(["retry", str(failed_job)]) == 1  # the CLI refuses the same way
     assert "only FAILED jobs" in capsys.readouterr().out
+
+
+# --- B5: a resume linked to an application in progress or submitted never changes ---------
+
+
+def _tailor(
+    db: Session, settings: Settings, profile: UserProfile, browser: Any, job_id: uuid.UUID
+) -> tuple[ToolResult, FakeClaude]:
+    claude = FakeClaude(good_resume())
+    ctx = tctx(db, settings, profile, browser, ExecutionMode.INTERNAL_WRITES)
+    ctx.claude_factory = lambda: claude
+    return call(ctx, "create_tailored_resume", job_id=job_id, force_new=True), claude
+
+
+def _linked(db: Session, job_id: uuid.UUID) -> uuid.UUID | None:
+    db.expire_all()
+    app = db.scalar(select(Application).where(Application.job_id == job_id))
+    assert app is not None
+    return app.resume_version_id
+
+
+def _versions(db: Session) -> int:
+    from database.models import ResumeVersion
+
+    return int(db.scalar(select(func.count()).select_from(ResumeVersion)) or 0)
+
+
+def _assert_locked(
+    db: Session, settings: Settings, profile: UserProfile, browser: Any, job_id: uuid.UUID
+) -> None:
+    before, versions = _linked(db, job_id), _versions(db)
+    res, claude = _tailor(db, settings, profile, browser, job_id)
+    assert not res.ok and "locked" in (res.message or ""), res
+    assert claude.prompts == []  # refused before any Claude call (no usage spent)
+    assert _linked(db, job_id) == before and _versions(db) == versions
+
+
+def test_resume_is_locked_while_the_application_is_in_progress(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    ready_job: uuid.UUID,
+) -> None:
+    ctx = tctx(db, exec_settings, exec_profile, browser)
+    assert call(ctx, "open_application", job_id=ready_job).ok
+    assert job_state(db, ready_job) is S.APPLICATION_IN_PROGRESS
+    _assert_locked(db, exec_settings, exec_profile, browser, ready_job)
+
+
+def test_resume_is_locked_while_a_session_is_paused_for_the_user(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+) -> None:
+    use_case(db, ready_job, site, "unknown")  # a question PIE may not answer: pauses
+    out = svc.run_execution(ectx(db, exec_settings, exec_profile, browser), ready_job)
+    assert out["blocked_needs_user"] is True
+    assert job_state(db, ready_job) is S.BLOCKED_NEEDS_USER  # not an "in progress" state...
+    _assert_locked(db, exec_settings, exec_profile, browser, ready_job)  # ...but still locked
+
+
+def test_resume_is_locked_once_submitted_or_attempted(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    ready_job: uuid.UUID,
+) -> None:
+    from database.enums import ApplicationStatus
+
+    app = db.scalar(select(Application).where(Application.job_id == ready_job))
+    job = db.get(Job, ready_job)
+    assert app is not None and job is not None
+    app.status = ApplicationStatus.APPLIED  # e.g. confirmed by email later
+    db.commit()
+    _assert_locked(db, exec_settings, exec_profile, browser, ready_job)
+    app.status = ApplicationStatus.DRAFT
+    db.add(
+        SubmissionAttempt(
+            idempotency_key="k" * 64,
+            application_id=app.id,
+            outcome=SubmissionOutcome.AMBIGUOUS,
+        )
+    )
+    db.commit()
+    _assert_locked(db, exec_settings, exec_profile, browser, ready_job)
+
+
+def test_resume_can_change_before_applying_and_after_a_clean_failure(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    failed_job: uuid.UUID,
+) -> None:
+    """A failed dry run sent nothing, so a new resume may be linked before a retry."""
+    before = _linked(db, failed_job)
+    res, _ = _tailor(db, exec_settings, exec_profile, browser, failed_job)
+    assert res.ok, res.message
+    assert _linked(db, failed_job) not in (None, before)
+
+
+def test_link_itself_refuses_a_locked_application(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    ready_job: uuid.UUID,
+) -> None:
+    """Defense in depth: even a caller that skipped the first check cannot swap it."""
+    from backend.services import tailoring
+    from database.models import ResumeVersion
+
+    ctx = tctx(db, exec_settings, exec_profile, browser)
+    assert call(ctx, "open_application", job_id=ready_job).ok
+    job = db.get(Job, ready_job)
+    app = db.scalar(select(Application).where(Application.job_id == ready_job))
+    assert job is not None and app is not None
+    other = db.scalars(
+        select(ResumeVersion).where(ResumeVersion.id != app.resume_version_id)
+    ).first()
+    assert other is not None  # the master version
+    with pytest.raises(tailoring.TailoringError, match="locked"):
+        tailoring._link(db, exec_settings, exec_profile, job, app, other, "agent", None)
+
+
+def test_failed_pdf_leaves_no_half_made_version(
+    db: Session,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+    ready_job: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.services import tailoring
+
+    def broken_pdf(*_: Any) -> bytes:
+        raise RuntimeError("font missing")
+
+    monkeypatch.setattr(tailoring, "render_pdf", broken_pdf)
+    folder = exec_settings.resumes_dir / "tailored" / f"job-{ready_job}"
+    files_before = sorted(p.name for p in folder.iterdir())
+    versions, linked = _versions(db), _linked(db, ready_job)
+    res, _ = _tailor(db, exec_settings, exec_profile, browser, ready_job)
+    assert not res.ok
+    assert sorted(p.name for p in folder.iterdir()) == files_before  # no orphan .md
+    assert _versions(db) == versions and _linked(db, ready_job) == linked

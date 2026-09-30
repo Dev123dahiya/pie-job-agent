@@ -11,6 +11,7 @@ import hashlib
 import logging
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func, select
@@ -31,20 +32,79 @@ from backend.services.analysis import profile_fingerprint
 from backend.services.readiness import Readiness, apply_readiness, evaluate_readiness
 from backend.services.resume_render import render_markdown, render_pdf, write_new_file
 from backend.services.resumes import MasterResume, ResumeUnavailableError, read_master_resume
-from database.enums import EventSource, JobPipelineState, ResumeValidationStatus
+from database.enums import (
+    ApplicationStatus,
+    BrowserSessionState,
+    EventSource,
+    JobPipelineState,
+    ResumeValidationStatus,
+)
 from database.models import (
     Application,
     ApplicationEvent,
+    BrowserSession,
     Job,
     JobAnalysis,
     Resume,
     ResumeVersion,
+    SubmissionAttempt,
     User,
 )
 
 logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 2  # the first attempt plus one controlled regeneration
 NOT_TAILORABLE = {JobPipelineState.DUPLICATE, JobPipelineState.WITHDRAWN}
+
+# REQUIREMENTS 7: once an application is in progress or submitted, its resume never changes.
+LOCKING_JOB_STATES = {
+    JobPipelineState.APPLICATION_IN_PROGRESS,
+    JobPipelineState.READY_FOR_SUBMISSION,
+    JobPipelineState.SUBMITTED,
+}
+UNLOCKED_APPLICATION_STATUSES = {
+    ApplicationStatus.DISCOVERED,
+    ApplicationStatus.SHORTLISTED,
+    ApplicationStatus.DRAFT,
+    ApplicationStatus.REQUIRES_USER_ACTION,
+}
+OPEN_SESSION_STATES = {
+    BrowserSessionState.CREATED,
+    BrowserSessionState.OPEN,
+    BrowserSessionState.NAVIGATING,
+    BrowserSessionState.FORM_DETECTED,
+    BrowserSessionState.FILLING,
+    BrowserSessionState.WAITING_FOR_USER,
+    BrowserSessionState.READY_FOR_SUBMISSION,
+}
+
+
+def resume_lock_reason(db: Session, job: Job, app: Application | None) -> str | None:
+    """Why this application's resume may not change any more, or None if it still may.
+
+    Locked while the job is being applied to or has been submitted, after any submission
+    status (APPLIED, INTERVIEW...), while a browser session is open (including one paused
+    for the user: the resume may already be in the employer's form), and once any
+    submission was attempted (its outcome may be unclear)."""
+    if job.pipeline_state in LOCKING_JOB_STATES:
+        return f"the application is {job.pipeline_state.value}"
+    if app is None:
+        return None
+    if app.applied_at is not None or app.status not in UNLOCKED_APPLICATION_STATUSES:
+        return f"the application is {app.status.value}"
+    open_session = db.scalar(
+        select(BrowserSession.id).where(
+            BrowserSession.application_id == app.id,
+            BrowserSession.state.in_(OPEN_SESSION_STATES),
+        )
+    )
+    if open_session is not None:
+        return "a browser session for this application is open"
+    attempted = db.scalar(
+        select(SubmissionAttempt.id).where(SubmissionAttempt.application_id == app.id).limit(1)
+    )
+    if attempted is not None:
+        return "a submission was already attempted"
+    return None
 
 
 class TailoringError(RuntimeError):
@@ -191,6 +251,13 @@ def tailor_resume(
     app = db.scalar(select(Application).where(Application.job_id == job.id))
     if application_id is not None and (app is None or app.id != application_id):
         raise TailoringError("PRECONDITION_FAILED", "application_id does not belong to this job")
+    locked = resume_lock_reason(db, job, app)
+    if locked:
+        raise TailoringError(
+            "PRECONDITION_FAILED",
+            f"The resume of this application is locked: {locked}. It never changes once an "
+            "application is in progress or submitted.",
+        )
     try:
         master = read_master_resume(settings)
     except ResumeUnavailableError as exc:
@@ -284,17 +351,21 @@ def tailor_resume(
     primary = folder / f"{stem}.{'pdf' if requested_format == 'pdf' else 'md'}"
     if primary.resolve() == master.path.resolve():
         raise TailoringError("PRECONDITION_FAILED", "Refusing to write over the master resume")
-    written = []
+    written: list[Path] = []
     try:
         write_new_file(folder / f"{stem}.md", markdown)
         written.append(folder / f"{stem}.md")
         if requested_format == "pdf":
             write_new_file(primary, render_pdf(content, profile))
             written.append(primary)
-    except FileExistsError as exc:
-        raise TailoringError(
-            "PRECONDITION_FAILED", f"Artifact already exists: {exc.filename}"
-        ) from exc
+    except BaseException as exc:
+        for path in written:  # never leave a half-made version (e.g. .md without its PDF)
+            path.unlink(missing_ok=True)
+        if isinstance(exc, FileExistsError):
+            raise TailoringError(
+                "PRECONDITION_FAILED", f"Artifact already exists: {exc.filename}"
+            ) from exc
+        raise
 
     version = ResumeVersion(
         resume_id=master_version.resume_id,
@@ -364,6 +435,10 @@ def _link(
     """Attach the version to the job's draft (if any) and re-evaluate readiness."""
     if app is None:
         return evaluate_readiness(db, settings, profile, job, None)
+    if app.resume_version_id != version.id:
+        locked = resume_lock_reason(db, job, app)
+        if locked:
+            raise TailoringError("PRECONDITION_FAILED", f"The resume is locked: {locked}")
     app.resume_version_id = version.id
     db.flush()
     readiness = evaluate_readiness(db, settings, profile, job, app)
