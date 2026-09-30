@@ -17,7 +17,7 @@ describe("getOverview", () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(overview));
     const result = await getOverview(fetchImpl);
     expect(result.ok && result.data.jobs_discovered_today).toBe(42);
-    expect(fetchImpl.mock.calls[0][0]).toBe("http://localhost:8000/api/dashboard/overview");
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:8000/api/dashboard/overview");
   });
 
   it("never substitutes demo numbers when the backend is unreachable", async () => {
