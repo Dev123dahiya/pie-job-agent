@@ -2240,3 +2240,35 @@ def test_failed_pdf_leaves_no_half_made_version(
     assert not res.ok
     assert sorted(p.name for p in folder.iterdir()) == files_before  # no orphan .md
     assert _versions(db) == versions and _linked(db, ready_job) == linked
+
+
+def test_agent_action_log_never_contains_answer_values(
+    db: Session,
+    session_factory: Any,
+    exec_settings: Settings,
+    exec_profile: UserProfile,
+    browser: BrowserManager,
+) -> None:
+    """B6: the agent asks which answers exist; what is stored and sent is keys only."""
+    from backend.services.agent_runner import start_agent_run
+    from database.enums import AgentRunStatus
+    from database.models import AgentAction, AgentRun
+    from tests.conftest import decision
+
+    claude = FakeClaude(
+        decision(tool="get_application_answers"),
+        decision(action="complete", message="Checked which answers exist."),
+    )
+    run = start_agent_run(db, "Which answers do I have?", mode="read_only", max_iterations=4)
+    _runner(session_factory, exec_settings, exec_profile, browser, claude).execute(run.id)
+    db.expire_all()
+    finished = db.get(AgentRun, run.id)
+    assert finished is not None and finished.status is AgentRunStatus.COMPLETED
+    actions = db.scalars(select(AgentAction).where(AgentAction.run_id == run.id)).all()
+    tool_outputs = [a.output for a in actions if a.tool == "get_application_answers"]
+    assert tool_outputs and "work_authorization" in str(tool_outputs)  # keys are there...
+    assert _leaks(exec_profile, {"actions": [a.output for a in actions]}) == []  # values not
+    identity = {"first_name", "last_name"} | {
+        f"link {k}" for k in exec_profile.verified_profile.links
+    }
+    assert [k for k in _leaks(exec_profile, {"prompts": claude.prompts}) if k not in identity] == []

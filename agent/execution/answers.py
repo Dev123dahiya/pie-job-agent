@@ -131,5 +131,9 @@ class AnswerBank:
             key, None, AnswerStatus.UNKNOWN, "none", "No verified answer"
         )
 
+    def all(self) -> list["Answer"]:
+        """Every answer the bank knows (any status), sorted by key."""
+        return sorted(self._answers.values(), key=lambda a: a.key)
+
     def verified_keys(self) -> list[str]:
         return sorted(k for k, a in self._answers.items() if a.verified)

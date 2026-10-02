@@ -45,30 +45,46 @@ class MissingAnswer(ToolOutput):
     question: str
 
 
+class AvailableAnswer(ToolOutput):
+    key: str  # the exact key fill_application_field accepts
+    status: str  # VERIFIED | UNCONFIRMED
+    source: str  # where it comes from (profile, identity, the user's saved answer)
+
+
 class AnswersOutput(ToolOutput):
-    answers: dict[str, str]
+    answers: list[AvailableAnswer]
     missing: list[MissingAnswer]
     note: str
 
 
 def get_application_answers(ctx: ToolContext, _: NoInput) -> AnswersOutput:
-    facts = ctx.profile.verified_profile
-    answers: dict[str, str] = {"full_name": facts.name, "email": str(facts.email)}
-    if facts.phone:
-        answers["phone"] = facts.phone
-    if facts.location:
-        answers["current_location"] = facts.location
-    for key, url in facts.links.items():
-        answers[f"link_{key}"] = url
-    answers.update(facts.verified_answers)
+    """Which answers exist, never what they are (REQUIREMENTS 13). The form filler looks the
+    values up itself at fill time; the agent only ever passes answer keys. Built from the same
+    AnswerBank the filler uses, so the key names always match."""
+    from sqlalchemy import select
+
+    from agent.execution.answers import AnswerBank
+    from database.models import ApplicationAnswer
+
+    saved = ctx.db.scalars(
+        select(ApplicationAnswer).where(ApplicationAnswer.application_id.is_(None))
+    ).all()  # the user's answers for every application
+    bank = AnswerBank(ctx.profile, list(saved))
+    answers = [
+        AvailableAnswer(key=a.key, status=a.status.value, source=a.source)
+        for a in bank.all()
+        if a.status.value in ("VERIFIED", "UNCONFIRMED")
+    ]
+    verified = set(bank.verified_keys())
     missing = [
-        MissingAnswer(key=k, question=q) for k, q in STANDARD_QUESTIONS.items() if k not in answers
+        MissingAnswer(key=k, question=q) for k, q in STANDARD_QUESTIONS.items() if k not in verified
     ]
     return AnswersOutput(
         answers=answers,
         missing=missing,
-        note="Only these verified answers may be used. Anything missing must be asked of the "
-        "user (BLOCKED_NEEDS_USER), never guessed.",
+        note="Only VERIFIED answers are ever filled in, by key; their values are not shown. "
+        "Anything missing or UNCONFIRMED must be asked of the user (BLOCKED_NEEDS_USER), "
+        "never guessed.",
     )
 
 
@@ -84,8 +100,9 @@ TOOLS = [
     ),
     Tool(
         name="get_application_answers",
-        description="Read verified answers for application forms (name, contact, notice period, "
-        "expected salary...) and the list of common questions that have NO verified answer.",
+        description="List which answers exist for application forms (answer keys and whether "
+        "they are verified; values are never shown) and the common questions that have NO "
+        "verified answer.",
         permission=ToolPermission.READ_ONLY,
         input_model=NoInput,
         output_model=AnswersOutput,

@@ -129,7 +129,7 @@ def classify(field: dict[str, Any], job_location: str | None) -> tuple[str | Non
             return "resume", "resume upload"
         return None, "unrecognised file upload"
     if re.search(
-        r"gender|\brace\b|ethnic|veteran|disabilit|sexual orientation|pronoun|religio|caste"
+        r"gender|\brace\b|ethnic|veteran|disabilit|sexual orientation|pronoun|religio|\bcaste\b"
         r"|date of birth|\bage\b|marital|hispanic|latino",
         text,
     ):
@@ -150,7 +150,8 @@ def classify(field: dict[str, Any], job_location: str | None) -> tuple[str | Non
         return "legal_question", "legal / compliance question"
 
     # Consequential questions - strict.
-    if re.search(r"sponsor|visa", text):
+    # Whole words: "visa" must not match inside "advisable".
+    if re.search(r"\bsponsor|\bvisas?\b", text):
         return "sponsorship", "sponsorship question (separate from work authorization)"
     if re.search(
         r"authori[sz]ed to work|work authori[sz]ation|right to work|eligible to work"
@@ -202,7 +203,13 @@ def classify(field: dict[str, Any], job_location: str | None) -> tuple[str | Non
         return by_autocomplete[auto], f"autocomplete={auto}"
     if kind == "email" or re.search(r"e ?mail", text):
         return "email", "email"
-    if kind == "tel" or re.search(r"phone|mobile|telephone|contact number", text):
+    # "Mobile" / "Mobile no." is a phone number field, but a question about mobile apps or
+    # mobile development must never receive the phone number.
+    if kind == "tel" or re.search(
+        r"phone|telephone|contact number|\bcell\b|\bmobile\b"
+        r"(?!\s*(app|application|development|developer|engineer|platform|device|framework))",
+        text,
+    ):
         return "phone", "phone"
     if re.search(r"preferred (first )?name|nick ?name", text):
         return None, "preferred name (not verified)"

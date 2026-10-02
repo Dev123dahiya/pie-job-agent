@@ -181,10 +181,32 @@ def test_profile_tool_never_verifies_unconfirmed_skills(ctx: ToolContext) -> Non
 def test_application_answers_report_missing_instead_of_guessing(ctx: ToolContext) -> None:
     ctx.profile.verified_profile.verified_answers = {"notice_period": "Immediate"}
     data = run(ctx, "get_application_answers").data or {}
-    assert data["answers"]["notice_period"] == "Immediate"
-    assert data["answers"]["email"] == "candidate@example.com"
+    status = {a["key"]: a["status"] for a in data["answers"]}
+    assert status["notice_period"] == "VERIFIED" and status["email"] == "VERIFIED"
     missing = {m["key"] for m in data["missing"]}
     assert "work_authorization" in missing and "notice_period" not in missing
+
+
+def test_application_answers_show_keys_never_values(ctx: ToolContext) -> None:
+    """B6 / REQUIREMENTS 13: the agent learns which answers exist, not what they are."""
+    import json
+
+    from agent.execution.answers import AnswerBank
+
+    ctx.profile.verified_profile.verified_answers = {
+        "notice_period": "Immediate",
+        "expected_salary": "14 LPA",
+    }
+    data = run(ctx, "get_application_answers").data or {}
+    text = json.dumps(data)
+    facts = ctx.profile.verified_profile
+    for value in ["Immediate", "14 LPA", str(facts.email), *facts.links.values()]:
+        assert value not in text, value
+    assert all(set(a) == {"key", "status", "source"} for a in data["answers"])
+    # The same key names the form filler accepts (no "current_location" / "link_github").
+    keys = {a["key"] for a in data["answers"] if a["status"] == "VERIFIED"}
+    assert keys == set(AnswerBank(ctx.profile).verified_keys())
+    assert not any(k.startswith(("current_", "link_")) for k in keys)
 
 
 def test_tailoring_without_claude_creates_nothing(ctx: ToolContext, db: Session) -> None:

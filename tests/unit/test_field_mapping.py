@@ -259,3 +259,32 @@ def test_resume_upload_needs_a_validated_pdf(bank: AnswerBank) -> None:
     assert plan_field(field("Resume", "file"), bank, None, True).action == "upload_resume"
     missing = plan_field(field("Resume", "file"), bank, None, False)
     assert missing.action == "block" and missing.category == UNKNOWN
+
+
+# --- B6: whole-word matching, so ordinary words are not mistaken for questions ------------
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        # "visa" as a word is a sponsorship question; inside "advisable" it is not.
+        ("Will you require visa sponsorship?", "sponsorship"),
+        ("Do you need a visa to work here?", "sponsorship"),
+        ("Visas currently held", "sponsorship"),
+        ("Would you require sponsorship?", "sponsorship"),
+        ("Is it advisable for you to relocate?", "willing_to_relocate"),
+        # A phone field vs a question about mobile apps (which must never get the number).
+        ("Mobile", "phone"),
+        ("Mobile No.", "phone"),
+        ("Mobile number", "phone"),
+        ("Cell phone", "phone"),
+        ("Do you have mobile app development experience?", None),
+        ("Years of mobile development", None),
+        ("Mobile platform you know best", None),
+        # "caste" as a word is sensitive; inside "broadcaster" it is not.
+        ("Caste", "sensitive_demographic"),
+        ("Experience as a broadcaster?", None),
+    ],
+)
+def test_keywords_match_whole_words_only(label: str, expected: str | None) -> None:
+    assert classify(field(label), "Gurugram, India")[0] == expected
