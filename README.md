@@ -30,7 +30,8 @@ cp dashboard/.env.example dashboard/.env.local
 # 2. Backend
 python -m venv .venv
 .venv/Scripts/activate            # Windows  (macOS/Linux: source .venv/bin/activate)
-pip install -e ".[dev]"
+pip install -r requirements-dev.txt     # exact tested versions (or: pip install -e ".[dev]")
+pip install -e . --no-deps
 alembic upgrade head              # creates/updates data/pie.db (SQLite)
 python -m backend.scripts.seed_mock      # optional: fictional demo data (dev mode only)
 python -m backend.serve --reload       # http://127.0.0.1:8000 (this computer only)

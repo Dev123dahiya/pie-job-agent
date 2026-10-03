@@ -1,0 +1,13 @@
+# Tests and checks: pip install -r requirements-dev.txt
+-r requirements.txt
+ast_serialize==0.11.2
+iniconfig==2.3.0
+librt==0.15.0
+mypy==2.3.1
+mypy_extensions==1.1.0
+pathspec==1.1.1
+pluggy==1.6.0
+Pygments==2.21.0
+pytest==9.1.1
+ruff==0.16.9
+types-PyYAML==6.0.12.20260906

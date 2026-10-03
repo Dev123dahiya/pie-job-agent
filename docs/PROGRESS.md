@@ -27,7 +27,7 @@ of every step. No personal data here.
 | B5 | A resume linked to an in-progress or submitted application never changes | Done (approved) |
 | B6 | Answers tool shows keys only, not values; key names match; whole-word "visa" | Done (approved) |
 | B7 | Daily limits enforced in the backend (`config/automation.yaml`: total + per platform) | Done |
-| B8 | `requirements.txt` | To do |
+| B8 | `requirements.txt` (+ `requirements-dev.txt`, exact tested versions) | Done |
 | B10 | Check `config/user_profile.yaml` is complete; match `config/job_sources.yaml` | Needs you: fill the profile |
 
 ## To-do list (remaining work)
