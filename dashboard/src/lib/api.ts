@@ -1,3 +1,4 @@
+import { type LogPage, logsQueryString } from "./logs";
 import type {
   AgentStatus,
   DailySchedule,
@@ -176,4 +177,9 @@ export function getHome(fetchImpl?: typeof fetch) {
 /** Today's live submissions against the daily limits (enforced in the backend). */
 export function getDailyLimits(fetchImpl?: typeof fetch) {
   return fetched<DailyLimit[]>("/api/dashboard/limits", fetchImpl);
+}
+
+/** The backend log, filtered and redacted by the backend (newest first). */
+export function getLogs(params: Record<string, string | string[] | undefined>, fetchImpl?: typeof fetch) {
+  return fetched<LogPage>(`/api/logs${logsQueryString(params)}`, fetchImpl);
 }

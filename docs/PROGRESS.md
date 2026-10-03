@@ -10,7 +10,7 @@ of every step. No personal data here.
 |---|---|
 | A: git setup + privacy cleanup | Done (merged to `main`) |
 | B: bug fixes + SQLite default + requirements.txt | In progress (branch `phase-b-fixes`) |
-| Dashboard (pages for existing data) | Not started |
+| Dashboard (pages for existing data) | Done (D1-D5) |
 | C: Naukri | Not started |
 | D: LinkedIn Easy Apply | Not started |
 | E: LLM answers, model split, auto mode | Not started |
@@ -47,7 +47,7 @@ after Phase C".
       answers, screenshots, errors
 - [x] D4 Resumes: master + tailored versions, which job/application uses each, preview,
       download, locked badge
-- [ ] D5 Logs: search, filters (level, run, platform, date), secrets redacted, download
+- [x] D5 Logs: search, filters (level, run, platform, date), secrets redacted, download
 
 ### Phase C: Naukri
 

@@ -18,6 +18,7 @@ from backend.api.routes import (
     health,
     jobs,
     leads,
+    logs,
     resumes,
 )
 from backend.core.config import Settings, get_settings
@@ -74,6 +75,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(applications.router, prefix="/api")
     app.include_router(daily.router, prefix="/api")
     app.include_router(leads.router, prefix="/api")
+    app.include_router(logs.router, prefix="/api")
 
     if settings.development_mode:
         logger.info("DEVELOPMENT_MODE is on: no real applications will be submitted")
