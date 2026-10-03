@@ -24,6 +24,7 @@ const app = (over: Partial<ApplicationDetail> = {}): ApplicationDetail => ({
   job_status: "READY_FOR_SUBMISSION", requires_user_input: false, applied_at: null,
   updated_at: "2026-09-28T10:00:00Z", latest_session: null, url: "u", application_url: null,
   user_action_required: null, readiness: { ready: true, eligible: true, user_blockers: [], pending_steps: [] },
+  user_status: "found", platform: "company_site", resume_locked: false, last_error: null, resume: null,
   external_live_enabled: false, development_mode: true, external_live_configured: false,
   live_block_reason: "DEVELOPMENT_MODE_BLOCKED", browser_headless: true, default_mode: "external_dry_run",
   confirmation_statement: "You are about to submit an application to Acme for Backend Engineer. This will perform an external action.",

@@ -2387,3 +2387,49 @@ def test_api_shows_todays_limits(client: Any, api: Any) -> None:
         "company_site": 10,
     }
     assert all(r["used"] == 0 and r["remaining"] == r["limit"] for r in rows)
+
+
+# --- D3: Applications page ------------------------------------------------------------------
+
+
+def test_api_applications_show_resume_lock_status_and_filters(
+    client: Any,
+    api: Any,
+    db: Session,
+    live_settings: Settings,
+    exec_profile: UserProfile,
+    browser: Any,
+    ready_job: uuid.UUID,
+) -> None:
+    app_id = _app_id(db, ready_job)
+    rows = client.get("/api/applications").json()
+    assert [r["id"] for r in rows] == [app_id]
+    row = rows[0]
+    assert row["user_status"] == "found" and row["platform"] == "company_site"
+    assert row["resume_locked"] is False
+    detail = client.get(f"/api/applications/{app_id}").json()
+    resume = detail["resume"]
+    assert resume["version_number"] >= 1 and resume["locked"] is False
+    assert resume["file_name"] and "/" not in resume["file_name"]
+
+    # A prepared live session puts the resume in the employer's form: locked.
+    prepare_live(db, live_settings, exec_profile, browser, ready_job)
+    detail = client.get(f"/api/applications/{app_id}").json()
+    assert detail["resume"]["locked"] is True and detail["resume"]["lock_reason"]
+    # Filled answers are shown by label and key only, never by value.
+    filled = detail["sessions"][0]["filled_fields"]
+    assert filled and all(set(f) == {"field_id", "label", "key", "source"} for f in filled)
+
+    def count(**params: Any) -> int:
+        res = client.get("/api/applications", params=params)
+        assert res.status_code == 200, res.text
+        return len(res.json())
+
+    assert count(platform="company_site") == 1 and count(platform="naukri") == 0
+    assert count(status_group="found") == 1 and count(status_group="applied") == 0
+    assert count(updated_from="2000-01-01") == 1 and count(updated_to="2000-01-01") == 0
+    bad = client.get(
+        "/api/applications", params={"updated_from": "2026-02-02", "updated_to": "2026-01-01"}
+    )
+    assert bad.status_code == 422
+    assert client.get("/api/applications", params={"platform": "indeed"}).status_code == 422

@@ -43,7 +43,7 @@ after Phase C".
 - [x] D1 Home: mode per platform + live warning banner, today vs daily limits, status counts,
       login status per platform, last run + 10 recent events, quick links
 - [x] D2 Jobs: search, sorting, all filters; detail page with dimensions, duplicates, actions
-- [ ] D3 Applications: filters; detail timeline from the audit log, locked resume badge, masked
+- [x] D3 Applications: filters; detail timeline from the audit log, locked resume badge, masked
       answers, screenshots, errors
 - [ ] D4 Resumes: master + tailored versions, which job/application uses each, preview,
       download, locked badge

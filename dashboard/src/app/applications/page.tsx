@@ -2,15 +2,18 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { ApplicationFilters } from "@/components/applications/ApplicationFilters";
 import { ExecutionModeBar } from "@/components/applications/ExecutionModeBar";
+import { PLATFORM_LABEL, STATUS_LABEL } from "@/lib/home";
 import { getApplications, getExecutionMode } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Applications" };
 export const dynamic = "force-dynamic";
 
-export default async function ApplicationsPage() {
-  const [res, mode] = await Promise.all([getApplications(), getExecutionMode()]);
+export default async function ApplicationsPage(props: PageProps<"/applications">) {
+  const params = await props.searchParams;
+  const [res, mode] = await Promise.all([getApplications(params), getExecutionMode()]);
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -22,12 +25,15 @@ export default async function ApplicationsPage() {
         </p>
       </div>
       <ExecutionModeBar mode={mode.ok ? mode.data : null} />
-      <Card title="All applications">
+      <Card title="All applications" action={<span className="text-xs text-ink-3">{res.ok ? res.data.length : 0} shown</span>}>
+        <div className="mb-4">
+          <ApplicationFilters params={params} />
+        </div>
         {!res.ok ? (
           <p role="alert" className="text-sm text-critical">{res.error}</p>
         ) : res.data.length === 0 ? (
           <p className="text-sm text-ink-2">
-            No applications yet. A shortlisted job gets one when you create an application draft.
+            No applications match. A shortlisted job gets one when you create an application draft.
           </p>
         ) : (
           <div className="-mx-4 overflow-x-auto sm:mx-0">
@@ -35,6 +41,7 @@ export default async function ApplicationsPage() {
               <thead className="text-xs text-ink-3">
                 <tr>
                   <th className="px-3 py-2 font-medium">Job</th>
+                  <th className="px-3 py-2 font-medium">Platform</th>
                   <th className="px-3 py-2 font-medium">Status</th>
                   <th className="px-3 py-2 font-medium">Browser session</th>
                   <th className="px-3 py-2 font-medium">Updated</th>
@@ -48,8 +55,11 @@ export default async function ApplicationsPage() {
                         {a.title}
                       </Link>
                       <p className="text-xs text-ink-3">{a.company ?? "Unknown company"}</p>
+                      {a.resume_locked && <p className="text-xs text-ink-3">Resume locked</p>}
                     </td>
+                    <td className="px-3 py-2 text-ink-2">{PLATFORM_LABEL[a.platform]}</td>
                     <td className="px-3 py-2">
+                      <p className="text-sm font-medium text-ink">{STATUS_LABEL[a.user_status]}</p>
                       <StatusBadge status={a.job_status} />
                       {a.requires_user_input && <p className="mt-1 text-xs text-ink-2">Needs you</p>}
                     </td>

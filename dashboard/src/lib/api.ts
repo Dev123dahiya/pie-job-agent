@@ -134,8 +134,20 @@ export function getMasterResumeStatus(fetchImpl?: typeof fetch) {
   return fetched<MasterResumeStatus>("/api/resumes/master", fetchImpl);
 }
 
-export function getApplications(fetchImpl?: typeof fetch) {
-  return fetched<ApplicationSummary[]>("/api/applications", fetchImpl);
+export const APPLICATION_QUERY_KEYS = ["platform", "status_group", "updated_from", "updated_to"] as const;
+
+export function getApplications(
+  params: Record<string, string | string[] | undefined> = {},
+  fetchImpl?: typeof fetch,
+) {
+  const qs = new URLSearchParams();
+  for (const key of APPLICATION_QUERY_KEYS) {
+    const value = params[key];
+    const first = Array.isArray(value) ? value[0] : value;
+    if (first) qs.set(key, first);
+  }
+  const s = qs.toString();
+  return fetched<ApplicationSummary[]>(`/api/applications${s ? `?${s}` : ""}`, fetchImpl);
 }
 
 export function getApplication(id: string, fetchImpl?: typeof fetch) {

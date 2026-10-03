@@ -382,6 +382,9 @@ export type ApplicationSummary = {
   requires_user_input: boolean;
   applied_at: string | null;
   updated_at: string;
+  user_status: UserStatusKey;
+  platform: "naukri" | "linkedin" | "company_site";
+  resume_locked: boolean;
   latest_session: { id: string; mode: "DRY_RUN" | "LIVE"; state: string; current_step: string | null } | null;
 };
 
@@ -389,6 +392,11 @@ export type ApplicationDetail = ApplicationSummary & ExecutionModeStatus & {
   url: string;
   application_url: string | null;
   user_action_required: string | null;
+  last_error: string | null;
+  resume: {
+    version_id: string; version_number: number; is_master: boolean; file_name: string;
+    locked: boolean; lock_reason: string | null;
+  } | null;
   readiness: Readiness;
   confirmation_statement: string;
   sessions: BrowserSessionView[];

@@ -3,6 +3,7 @@ import { ArrowLeft, CircleCheck, CircleDashed, TriangleAlert } from "lucide-reac
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ResumeUsedCard } from "@/components/applications/ResumeUsedCard";
 import { ExecutionBanner } from "@/components/applications/ExecutionBanner";
 import { ExecutionModeBar } from "@/components/applications/ExecutionModeBar";
 import { AnswerQuestions, LiveSubmit, SessionActions, StartExecution } from "@/components/applications/ExecutionControls";
@@ -238,6 +239,12 @@ export default async function ApplicationPage(props: PageProps<"/applications/[i
         </div>
 
         <div className="flex flex-col gap-6">
+          <ResumeUsedCard resume={app.resume} />
+          {app.last_error && (
+            <Card title="Last error">
+              <p className="text-sm text-critical">{app.last_error}</p>
+            </Card>
+          )}
           <Card title="Readiness">
             <StatusBadge status={app.readiness.ready ? "READY_TO_APPLY" : app.job_status} />
             {[...app.readiness.user_blockers, ...app.readiness.pending_steps].length > 0 && (
