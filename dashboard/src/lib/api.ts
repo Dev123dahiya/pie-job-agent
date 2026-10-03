@@ -62,6 +62,8 @@ async function fetched<T>(path: string, fetchImpl?: typeof fetch): Promise<Fetch
 export const JOB_QUERY_KEYS = [
   "q", "location", "source", "freshness", "shortlisted", "min_salary",
   "salary_known_only", "sort", "limit", "offset",
+  "status_group", "platform", "apply_type", "company", "min_score", "max_score",
+  "found_from", "found_to",
 ] as const;
 
 export function jobsQueryString(params: Record<string, string | string[] | undefined>): string {

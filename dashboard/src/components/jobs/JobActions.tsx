@@ -240,3 +240,53 @@ export function CreateTailoredResumeButton({ jobId, hasVersion }: { jobId: strin
     </div>
   );
 }
+
+/** Skip a job (before an application starts). It can be moved to the shortlist again later. */
+export function SkipJobButton({ jobId }: { jobId: string }) {
+  const router = useRouter();
+  const { state, run } = useAction();
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <ActionButton
+        icon={FileText}
+        busy={state.busy}
+        onClick={() =>
+          run(async () => {
+            const { ok, data } = await post(`jobs/${jobId}/skip`, {});
+            if (!ok) throw new Error(detail(data, "Could not skip this job"));
+            router.refresh();
+            return "Skipped";
+          })
+        }
+      >
+        Skip
+      </ActionButton>
+      <Message state={state} />
+    </div>
+  );
+}
+
+/** Move to the shortlist. The backend refuses anything below the minimum match score. */
+export function ShortlistJobButton({ jobId }: { jobId: string }) {
+  const router = useRouter();
+  const { state, run } = useAction();
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <ActionButton
+        icon={WandSparkles}
+        busy={state.busy}
+        onClick={() =>
+          run(async () => {
+            const { ok, data } = await post(`jobs/${jobId}/shortlist`, {});
+            if (!ok) throw new Error(detail(data, "Could not shortlist this job"));
+            router.refresh();
+            return "Moved to the shortlist";
+          })
+        }
+      >
+        Move to shortlist
+      </ActionButton>
+      <Message state={state} />
+    </div>
+  );
+}

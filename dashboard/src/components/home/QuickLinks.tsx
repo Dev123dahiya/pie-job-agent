@@ -4,9 +4,9 @@ import type { HomeStatus } from "@/lib/types";
 /** Quick links. Features not built yet say so instead of showing a fake 0. */
 export function QuickLinks({ links }: { links: HomeStatus["quick_links"] }) {
   const items: { label: string; count: number | null; href: string }[] = [
-    { label: "Needs my input", count: links.needs_input, href: "/jobs?status=needs_input" },
-    { label: "Manual apply", count: links.manual, href: "/jobs?status=manual" },
-    { label: "Failed", count: links.failed, href: "/jobs?status=failed" },
+    { label: "Needs my input", count: links.needs_input, href: "/jobs?status_group=needs_input" },
+    { label: "Manual apply", count: links.manual, href: "/jobs?status_group=manual" },
+    { label: "Failed", count: links.failed, href: "/jobs?status_group=failed" },
     { label: "Waiting for review", count: links.waiting_for_review, href: "/jobs" },
   ];
   return (

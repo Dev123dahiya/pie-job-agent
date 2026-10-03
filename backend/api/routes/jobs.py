@@ -1,8 +1,11 @@
 import uuid
+from datetime import date, datetime, time, timedelta
 from typing import Annotated, Any, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
@@ -53,10 +56,13 @@ from backend.services.analysis import (
 from backend.services.discovery import DiscoveryService, create_discovery_run
 from backend.services.failed_jobs import RetryError, list_failed_jobs, retry_failed_job
 from backend.services.freshness import freshness_filter
+from backend.services.job_actions import JobActionError, shortlist_job, skip_job
+from backend.services.platforms import FORM_SOURCES, ApplyType, Platform
 from backend.services.readiness import evaluate_readiness
 from backend.services.resumes import locate_master_resume
 from backend.services.runs import RunConflictError, ensure_no_active_run
 from backend.services.shortlist import ShortlistRules
+from backend.services.statuses import UserStatus, states_for
 from database.base import utcnow
 from database.enums import Freshness, JobPipelineState, ResumeValidationStatus, ToolPermission
 from database.models import (
@@ -125,6 +131,14 @@ def _list_jobs(
     sort: SortKey,
     limit: int,
     offset: int,
+    user_status: list[UserStatus] | None = None,
+    platform: Platform | None = None,
+    apply_type: ApplyType | None = None,
+    company: str | None = None,
+    min_score: int | None = None,
+    max_score: int | None = None,
+    found_from: datetime | None = None,
+    found_before: datetime | None = None,
 ) -> JobList:
     now = utcnow()
     max_age = profile.preferences.maximum_application_age_hours
@@ -147,6 +161,31 @@ def _list_jobs(
         where.append(freshness_filter(freshness, now, max_age))
     if status:
         where.append(Job.pipeline_state.in_(status))
+    if user_status:
+        where.append(Job.pipeline_state.in_([s for u in user_status for s in states_for(u)]))
+    on_platform = func.lower(Job.source).in_(["naukri", "linkedin"])
+    if platform == "company_site":
+        where.append(~on_platform)
+    elif platform:
+        where.append(func.lower(Job.source) == platform)
+    if apply_type == "company_form":
+        where.append(func.lower(Job.source).in_(sorted(FORM_SOURCES)))
+    elif apply_type == "naukri_direct":
+        where.append(func.lower(Job.source) == "naukri")
+    elif apply_type == "linkedin_easy_apply":
+        where.append(func.lower(Job.source) == "linkedin")
+    elif apply_type == "external_link":
+        where += [~on_platform, func.lower(Job.source).notin_(sorted(FORM_SOURCES))]
+    if company:
+        where.append(func.lower(Company.name).like(f"%{company.lower()}%"))
+    if min_score is not None:
+        where.append(latest.c.match_score >= min_score)
+    if max_score is not None:
+        where.append(latest.c.match_score <= max_score)
+    if found_from is not None:
+        where.append(Job.discovered_at >= found_from)
+    if found_before is not None:
+        where.append(Job.discovered_at < found_before)
     if shortlisted is True:
         where.append(Job.pipeline_state.in_(SHORTLISTED_STATES))
     elif shortlisted is False:
@@ -195,6 +234,7 @@ def _list_jobs(
 def list_jobs(
     db: DB,
     profile: Annotated[UserProfile, Depends(profile_dep)],
+    settings: Annotated[Settings, Depends(get_settings)],
     q: str | None = Query(None, description="Search title or company"),
     location: str | None = None,
     source: str | None = None,
@@ -206,7 +246,20 @@ def list_jobs(
     sort: SortKey = "newest",
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    user_status: Annotated[list[UserStatus] | None, Query(alias="status_group")] = None,
+    platform: Platform | None = None,
+    apply_type: ApplyType | None = None,
+    company: str | None = Query(None, max_length=200),
+    min_score: int | None = Query(None, ge=0, le=100),
+    max_score: int | None = Query(None, ge=0, le=100),
+    found_from: Annotated[date | None, Query(description="Found on/after (your timezone)")] = None,
+    found_to: Annotated[date | None, Query(description="Found on/before (your timezone)")] = None,
 ) -> JobList:
+    if min_score is not None and max_score is not None and min_score > max_score:
+        raise HTTPException(422, "min_score must not be above max_score")
+    if found_from and found_to and found_from > found_to:
+        raise HTTPException(422, "found_from must not be after found_to")
+    zone = ZoneInfo(settings.timezone)
     return _list_jobs(
         db,
         profile,
@@ -221,6 +274,18 @@ def list_jobs(
         sort=sort,
         limit=limit,
         offset=offset,
+        user_status=user_status,
+        platform=platform,
+        apply_type=apply_type,
+        company=company,
+        min_score=min_score,
+        max_score=max_score,
+        found_from=datetime.combine(found_from, time.min, tzinfo=zone) if found_from else None,
+        found_before=(
+            datetime.combine(found_to + timedelta(days=1), time.min, tzinfo=zone)
+            if found_to
+            else None
+        ),
     )
 
 
@@ -479,6 +544,32 @@ def retry_job(
     try:
         job = retry_failed_job(db, settings, profile, job_id)
     except RetryError as exc:
+        raise HTTPException(404 if "No job" in str(exc) else 409, str(exc)) from exc
+    return {"job_id": str(job.id), "status": job.pipeline_state.value}
+
+
+class SkipIn(BaseModel):
+    reason: str | None = Field(None, max_length=500)
+
+
+@router.post("/{job_id}/skip")
+def skip(job_id: uuid.UUID, db: DB, body: SkipIn | None = None) -> dict[str, Any]:
+    """The user skips a job. Only before an application starts; it can be shortlisted again."""
+    try:
+        job = skip_job(db, job_id, body.reason if body else None)
+    except JobActionError as exc:
+        raise HTTPException(404 if "No job" in str(exc) else 409, str(exc)) from exc
+    return {"job_id": str(job.id), "status": job.pipeline_state.value}
+
+
+@router.post("/{job_id}/shortlist")
+def shortlist(
+    job_id: uuid.UUID, db: DB, rules: Annotated[ShortlistRules, Depends(rules_dep)]
+) -> dict[str, Any]:
+    """The user overrides a shortlist rule. Never the minimum match score (backend-enforced)."""
+    try:
+        job = shortlist_job(db, job_id, rules)
+    except JobActionError as exc:
         raise HTTPException(404 if "No job" in str(exc) else 409, str(exc)) from exc
     return {"job_id": str(job.id), "status": job.pipeline_state.value}
 

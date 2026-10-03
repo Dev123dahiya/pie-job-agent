@@ -42,7 +42,7 @@ after Phase C".
 
 - [x] D1 Home: mode per platform + live warning banner, today vs daily limits, status counts,
       login status per platform, last run + 10 recent events, quick links
-- [ ] D2 Jobs: search, sorting, all filters; detail page with dimensions, duplicates, actions
+- [x] D2 Jobs: search, sorting, all filters; detail page with dimensions, duplicates, actions
 - [ ] D3 Applications: filters; detail timeline from the audit log, locked resume badge, masked
       answers, screenshots, errors
 - [ ] D4 Resumes: master + tailored versions, which job/application uses each, preview,
@@ -106,6 +106,8 @@ after Phase C".
   agent's action log.
 - Phase C: restart the browser after a freeze.
 - Experience-range filter moved to Phase C.
+- `min_match_score` is 70 in `config/shortlist_rules.yaml` (it was null). The dashboard's
+  "Move to shortlist" can override other shortlist rules, never the minimum score.
 - 2026-10-03: work through the to-do list without a plan check-in per phase; stop only for
   steps that need the user, before deleting files or big rewrites. Dry-run stays the default.
 

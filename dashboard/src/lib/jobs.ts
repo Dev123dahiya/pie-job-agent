@@ -2,6 +2,10 @@
 // a server component importing them gets a client reference, not the value.
 
 /** Pipeline states the backend accepts for (re-)analysis (backend/services/analysis.py). */
+/** Mirrors backend/services/job_actions.py; the backend still decides. */
+export const SKIPPABLE_STATES: ReadonlySet<string> = new Set(["DISCOVERED", "ANALYZED", "SHORTLISTED", "FAILED"]);
+export const SHORTLISTABLE_STATES: ReadonlySet<string> = new Set(["ANALYZED", "REJECTED_BY_AGENT"]);
+
 export const ANALYZABLE_STATES: ReadonlySet<string> = new Set([
   "DISCOVERED",
   "ANALYZED",

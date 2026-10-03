@@ -75,6 +75,10 @@ export type Analysis = {
 export type JobSummary = {
   id: string;
   source: string;
+  /** One of the six statuses; `status` keeps PIE's detailed state. */
+  user_status: UserStatusKey;
+  platform: "naukri" | "linkedin" | "company_site";
+  apply_type: "company_form" | "naukri_direct" | "linkedin_easy_apply" | "external_link";
   company: string | null;
   title: string;
   location: string | null;

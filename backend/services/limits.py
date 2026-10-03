@@ -13,7 +13,6 @@ through).
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
 from pathlib import Path
-from typing import Literal
 from zoneinfo import ZoneInfo
 
 import yaml
@@ -21,11 +20,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.services.platforms import PLATFORMS, Platform, platform_of
 from database.enums import SubmissionOutcome
 from database.models import Application, Job, SubmissionAttempt
-
-Platform = Literal["naukri", "linkedin", "company_site"]
-PLATFORMS: tuple[Platform, ...] = ("naukri", "linkedin", "company_site")
 
 
 class LimitsConfigError(Exception):
@@ -65,15 +62,6 @@ def load_automation(path: Path) -> AutomationConfig:
         return AutomationConfig.model_validate(data)
     except (yaml.YAMLError, ValidationError, OSError) as exc:
         raise LimitsConfigError(f"{path.name} is invalid: {exc}") from exc
-
-
-def platform_of(job: Job) -> Platform:
-    source = (job.source or "").lower()
-    if source == "naukri":
-        return "naukri"
-    if source == "linkedin":
-        return "linkedin"
-    return "company_site"  # Greenhouse, Lever, Ashby... and every other employer site
 
 
 def start_of_today(tz: str, now: datetime | None = None) -> datetime:

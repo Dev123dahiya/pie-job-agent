@@ -155,3 +155,75 @@ def test_analyzer_unavailable_is_503(client: TestClient, discovered: str) -> Non
     job_id = client.get("/api/jobs").json()["items"][0]["id"]
     res = client.post(f"/api/jobs/{job_id}/analyze")
     assert res.status_code == 503 and "No Claude analyzer" in res.json()["detail"]
+
+
+# --- D2: six-status, platform, score, date, company and apply-type filters; user actions ---
+
+
+def test_jobs_carry_the_six_statuses_platform_and_apply_type(
+    client: TestClient, discovered: str
+) -> None:
+    items = client.get("/api/jobs").json()["items"]
+    assert items and all(j["user_status"] == "found" for j in items)
+    assert {j["platform"] for j in items} == {"company_site"}
+    assert {j["apply_type"] for j in items} == {"company_form"}  # mock = an employer form
+
+
+def test_new_filters(client: TestClient, discovered: str) -> None:
+    client.post("/api/jobs/analyze-shortlist", json={"limit": 50})
+    total = client.get("/api/jobs").json()["total"]
+
+    def count(**params: object) -> int:
+        res = client.get("/api/jobs", params=params)
+        assert res.status_code == 200, res.text
+        return res.json()["total"]
+
+    assert count(status_group="found") + count(status_group="skipped") == total
+    assert count(status_group=["found", "skipped"]) == total
+    assert count(platform="company_site") == total and count(platform="naukri") == 0
+    assert count(apply_type="company_form") == total and count(apply_type="external_link") == 0
+    scored = client.get("/api/jobs", params={"min_score": 0}).json()["items"]
+    assert scored and all(j["analysis"]["match_score"] is not None for j in scored)
+    top = max(j["analysis"]["match_score"] for j in scored)
+    assert count(min_score=top) >= 1 and count(min_score=top, max_score=top) == count(min_score=top)
+    company = scored[0]["company"]
+    assert count(company=company.upper()[:4]) >= 1
+    assert count(found_from="2000-01-01") == total and count(found_to="2000-01-01") == 0
+    # Invalid input is refused, not silently ignored.
+    assert client.get("/api/jobs", params={"min_score": 80, "max_score": 10}).status_code == 422
+    assert client.get("/api/jobs", params={"min_score": 101}).status_code == 422
+    assert client.get("/api/jobs", params={"platform": "indeed"}).status_code == 422
+    assert client.get("/api/jobs", params={"status_group": "maybe"}).status_code == 422
+
+
+def test_skip_and_move_to_shortlist(client: TestClient, discovered: str) -> None:
+    client.post("/api/jobs/analyze-shortlist", json={"limit": 50})
+    jobs = client.get("/api/jobs", params={"min_score": 0, "sort": "match"}).json()["items"]
+    shortlisted = next(j for j in jobs if j["status"] == "SHORTLISTED")
+
+    skipped = client.post(f"/api/jobs/{shortlisted['id']}/skip", json={"reason": "Not for me"})
+    assert skipped.status_code == 200 and skipped.json()["status"] == "REJECTED_BY_AGENT"
+    detail = client.get(f"/api/jobs/{shortlisted['id']}").json()
+    assert detail["user_status"] == "skipped"
+    last = detail["timeline"][-1]
+    assert last["event_type"] == "skipped_by_user" and last["reason"] == "Not for me"
+    # Skipping twice is refused; shortlisting it again works (score is high enough).
+    assert client.post(f"/api/jobs/{shortlisted['id']}/skip").status_code == 409
+    back = client.post(f"/api/jobs/{shortlisted['id']}/shortlist")
+    assert back.status_code == 200 and back.json()["status"] == "SHORTLISTED"
+
+    # The dashboard can never shortlist below the minimum match score (70).
+    low = [
+        j for j in jobs if j["analysis"]["match_score"] < 70 and j["status"] == "REJECTED_BY_AGENT"
+    ]
+    assert low, "the mock data must include a low-scoring job for this check"
+    for job in low:
+        res = client.post(f"/api/jobs/{job['id']}/shortlist")
+        assert res.status_code == 409 and "below the minimum" in res.json()["detail"]
+    # Unanalyzed jobs have no score to check.
+    fresh = client.get("/api/jobs", params={"status": "DISCOVERED"}).json()["items"]
+    for job in fresh[:1]:
+        res = client.post(f"/api/jobs/{job['id']}/shortlist")
+        assert res.status_code == 409
+    missing = client.post("/api/jobs/00000000-0000-0000-0000-000000000000/skip")
+    assert missing.status_code == 404

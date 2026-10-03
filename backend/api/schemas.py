@@ -7,6 +7,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from backend.services.freshness import compute_freshness
+from backend.services.platforms import apply_type_of, platform_of
+from backend.services.statuses import user_status
 from database.enums import Freshness
 from database.models import (
     AgentAction,
@@ -80,7 +82,10 @@ class JobSummary(BaseModel):
     posted_at: datetime | None
     discovered_at: datetime
     freshness: Freshness
-    status: str
+    status: str  # PIE's detailed pipeline state
+    user_status: str  # one of the six: found / skipped / applied / needs_input / manual / failed
+    platform: str  # naukri | linkedin | company_site
+    apply_type: str  # company_form | naukri_direct | linkedin_easy_apply | external_link
     url: str
     times_seen: int
     last_error: str | None
@@ -118,6 +123,9 @@ class JobSummary(BaseModel):
             salary_period=job.salary_period,
             salary_note=_salary_note(job),
             status=job.pipeline_state.value,
+            user_status=user_status(job.pipeline_state),
+            platform=platform_of(job),
+            apply_type=apply_type_of(job),
             url=job.url,
             times_seen=job.times_seen,
             last_error=job.last_error,

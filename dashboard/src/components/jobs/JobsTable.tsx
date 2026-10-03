@@ -1,6 +1,13 @@
 import { ExternalLink } from "lucide-react";
 import Link from "next/link";
-import { AnalyzeJobButton, CreateDraftButton } from "@/components/jobs/JobActions";
+import {
+  AnalyzeJobButton,
+  CreateDraftButton,
+  ShortlistJobButton,
+  SkipJobButton,
+} from "@/components/jobs/JobActions";
+import { SHORTLISTABLE_STATES, SKIPPABLE_STATES } from "@/lib/jobs";
+import { APPLY_TYPE_LABEL, STATUS_LABEL } from "@/lib/home";
 import { ANALYZABLE_STATES } from "@/lib/jobs";
 import { MatchDimensions } from "@/components/jobs/MatchDimensions";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -79,6 +86,7 @@ export function JobsTable({ jobs, emptyMessage }: { jobs: JobSummary[]; emptyMes
                   <ExternalLink aria-hidden className="size-3" />
                   <span className="sr-only">(opens the original posting)</span>
                 </a>
+                <p className="text-xs text-ink-3">{APPLY_TYPE_LABEL[job.apply_type]}</p>
                 {job.also_on && job.also_on.length > 0 && (
                   <p className="text-xs text-ink-3">also on {job.also_on.join(", ")}</p>
                 )}
@@ -87,7 +95,8 @@ export function JobsTable({ jobs, emptyMessage }: { jobs: JobSummary[]; emptyMes
                 <MatchDimensions analysis={job.analysis} />
               </td>
               <td className={TD}>
-                <StatusBadge status={job.status} />
+                <p className="text-sm font-medium text-ink">{STATUS_LABEL[job.user_status]}</p>
+                <StatusBadge status={job.status} className="mt-1" />
                 {job.tailored_version != null && (
                   <p className="mt-1 text-xs text-ink-2">Tailored resume v{job.tailored_version}</p>
                 )}
@@ -103,6 +112,8 @@ export function JobsTable({ jobs, emptyMessage }: { jobs: JobSummary[]; emptyMes
                     <AnalyzeJobButton jobId={job.id} analyzed={job.analysis !== null} />
                   )}
                   {job.status === "SHORTLISTED" && <CreateDraftButton jobId={job.id} />}
+                  {SHORTLISTABLE_STATES.has(job.status) && <ShortlistJobButton jobId={job.id} />}
+                  {SKIPPABLE_STATES.has(job.status) && <SkipJobButton jobId={job.id} />}
                 </div>
               </td>
             </tr>

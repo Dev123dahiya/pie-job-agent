@@ -16,6 +16,13 @@ export const STATUS_LABEL: Record<UserStatusKey, string> = {
   failed: "Failed",
 };
 
+export const APPLY_TYPE_LABEL = {
+  company_form: "Employer form",
+  naukri_direct: "Naukri direct apply",
+  linkedin_easy_apply: "LinkedIn Easy Apply",
+  external_link: "External link",
+} as const;
+
 export const STATUS_ORDER: UserStatusKey[] = ["found", "skipped", "applied", "needs_input", "manual", "failed"];
 
 /** Share of a limit used, 0-100. A limit of 0 means switched off: shown as full. */
