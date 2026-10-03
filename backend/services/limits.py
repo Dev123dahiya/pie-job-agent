@@ -47,10 +47,22 @@ class DailyLimits(BaseModel):
         return int(getattr(self, platform))
 
 
+class Models(BaseModel):
+    """Claude model per task (REQUIREMENTS 6): a cheaper one for scoring many jobs, the
+    strongest for tailoring resumes and answering application questions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scoring: str = Field(default="claude-sonnet-5-5", pattern=r"^claude-[a-z0-9.\-]+$")
+    tailoring: str = Field(default="claude-opus-5-5", pattern=r"^claude-[a-z0-9.\-]+$")
+    answers: str = Field(default="claude-opus-5-5", pattern=r"^claude-[a-z0-9.\-]+$")
+
+
 class AutomationConfig(BaseModel):
     model_config = ConfigDict(extra="allow")  # later steps add modes etc.
 
     daily_limits: DailyLimits = Field(default_factory=lambda: DailyLimits())
+    models: Models = Field(default_factory=lambda: Models())
 
 
 def load_automation(path: Path) -> AutomationConfig:
@@ -124,3 +136,9 @@ def limit_block(
                 "Nothing was submitted; it resets at midnight."
             )
     return None
+
+
+def model_for(path: Path, task: str) -> str:
+    """The configured Claude model for ``task`` (scoring | tailoring | answers)."""
+    models = load_automation(path).models
+    return str(getattr(models, task))

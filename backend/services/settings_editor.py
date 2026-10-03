@@ -156,11 +156,12 @@ def current(settings: Settings) -> dict[str, Any]:
         "answer_questions": dict(STANDARD_QUESTIONS),
         "read_only": {
             "models": {
-                "note": "Model per task (scoring, tailoring, answers) arrives with step E1, "
-                "right before the first big analysis run.",
-                "current": settings.claude_model,
+                "note": "Claude model per task, set in config/automation.yaml (models).",
+                "current": " · ".join(
+                    f"{task}: {name}" for task, name in automation.models.model_dump().items()
+                ),
             },
-            "experience_range": "Arrives with the Naukri search (Phase C).",
+            "experience_range": "Naukri's own search filters by your total experience.",
             "modes": "Choose the mode per run on the Runs page. Auto mode arrives in Phase E.",
         },
     }

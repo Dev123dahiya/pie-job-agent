@@ -197,18 +197,26 @@ class HeuristicAnalyzer:
 # --- Resolution ---------------------------------------------------------------------------
 
 
+def task_model(settings: Settings, task: str) -> str:
+    """The model for a task from config/automation.yaml (E1); scoring vs tailoring/answers."""
+    from backend.services.limits import model_for
+
+    return model_for(settings.automation_path, task)
+
+
 def resolve_analyzer(
     settings: Settings,
     location_patterns: dict[str, list[str]] | None = None,
     term_aliases: dict[str, list[str]] | None = None,
 ) -> JobAnalyzer:
+    """Job scoring: the configured scoring model (E1)."""
     backend = settings.analyzer_backend.lower()
     if backend == "heuristic":
         return HeuristicAnalyzer(location_patterns, term_aliases)
     if backend in ("auto", "claude_api") and settings.anthropic_api_key:
         return ClaudeApiAnalyzer(
             settings.anthropic_api_key,
-            settings.claude_model,
+            task_model(settings, "scoring"),
             settings.claude_effort,
             settings.claude_timeout_seconds,
         )
@@ -220,7 +228,7 @@ def resolve_analyzer(
         exe = shutil.which(settings.claude_cli_path)
         if exe:
             return ClaudeCliAnalyzer(
-                exe, settings.claude_cli_model, settings.claude_timeout_seconds
+                exe, task_model(settings, "scoring"), settings.claude_timeout_seconds
             )
         raise AnalyzerUnavailableError(
             "No Claude analyzer available: set ANTHROPIC_API_KEY, or install/sign in to the "
@@ -229,8 +237,9 @@ def resolve_analyzer(
     raise AnalyzerUnavailableError(f"Unknown ANALYZER_BACKEND {settings.analyzer_backend!r}")
 
 
-def resolve_structured_claude(settings: Settings) -> StructuredClaude:
-    """The Claude backend for the agent. The heuristic has no agent equivalent."""
+def resolve_structured_claude(settings: Settings, task: str = "tailoring") -> StructuredClaude:
+    """The Claude backend for the agent and resume tailoring (``task`` picks the model, E1).
+    The heuristic has no agent equivalent."""
     backend = settings.analyzer_backend.lower()
     if backend == "heuristic":
         # Offline/test mode never falls back to a real Claude call.
@@ -238,7 +247,7 @@ def resolve_structured_claude(settings: Settings) -> StructuredClaude:
     if backend in ("auto", "claude_api") and settings.anthropic_api_key:
         return ApiStructuredClaude.from_key(
             settings.anthropic_api_key,
-            settings.claude_model,
+            task_model(settings, task),
             settings.claude_effort,
             settings.claude_timeout_seconds,
         )
@@ -248,7 +257,7 @@ def resolve_structured_claude(settings: Settings) -> StructuredClaude:
         )
     exe = shutil.which(settings.claude_cli_path)
     if exe:
-        return CliStructuredClaude(exe, settings.claude_cli_model, settings.claude_timeout_seconds)
+        return CliStructuredClaude(exe, task_model(settings, task), settings.claude_timeout_seconds)
     raise AnalyzerUnavailableError(
         "No Claude backend available for the agent: set ANTHROPIC_API_KEY, or install and "
         "sign in to the Claude Code CLI (`claude`)."
@@ -261,7 +270,7 @@ def describe_analyzer(settings: Settings) -> tuple[str, str]:
     if backend == "heuristic":
         return "not_configured", "Heuristic analyzer (not Claude)"
     if backend in ("auto", "claude_api") and settings.anthropic_api_key:
-        return "ok", f"Anthropic API ({settings.claude_model})"
+        return "ok", f"Anthropic API (scoring: {task_model(settings, 'scoring')})"
     if backend in ("auto", "claude_cli") and shutil.which(settings.claude_cli_path):
         return "ok", "Claude Code CLI (your Claude subscription)"
     return "not_configured", "No Claude backend available"

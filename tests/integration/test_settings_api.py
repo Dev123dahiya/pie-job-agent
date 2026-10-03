@@ -47,7 +47,7 @@ def test_read_current_settings(client: TestClient, cfg: dict[str, Any]) -> None:
     assert body["limits"] == {"total": 20, "naukri": 15, "linkedin": 5, "company_site": 10}
     assert body["min_match_score"] == 70 and body["keywords"]
     assert "current_ctc" in body["answer_questions"]
-    assert "E1" in body["read_only"]["models"]["note"]
+    assert "scoring: claude-sonnet-5-5" in body["read_only"]["models"]["current"]
 
 
 def test_preview_shows_a_diff_and_writes_nothing(client: TestClient, cfg: dict[str, Any]) -> None:
