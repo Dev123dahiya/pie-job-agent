@@ -57,7 +57,7 @@ after Phase C".
       platform. Needs you: log in to Naukri once (OTP)
 - [x] C3 Naukri search from config (live-checked 2026-10-04: 20 cards/page, Naukri's own experience filter) (keywords, locations, experience, freshness, exclusions);
       skip out-of-range experience before scoring; cross-site duplicate check
-- [ ] C4 Naukri direct apply (dry-run first); redirects go to the company-site flow or the
+- [x] C4 Naukri apply, REVIEW MODE ONLY (decision 2026-10-04); "Apply on company site" jobs go to the manual list (company-site flow for them: later). Was: Naukri direct apply (dry-run first); redirects go to the company-site flow or the
       manual-apply list; step cap on multi-step forms
 - [x] C5 Needs-my-input: save unanswered questions, answer once, reuse next time (page done)
 - [x] C6 Review mode: wait for yes/no before submit (Runs page review mode + Review queue)
@@ -128,6 +128,10 @@ after Phase C".
   reads the real, logged-in pages to verify selectors and build search + apply.
 - 2026-10-04: both logins work and neither site blocked PIE's visible browser. Search works on
   both. Next: Naukri direct apply (C4) and LinkedIn Easy Apply, dry run first.
+- 2026-10-04 decisions: Naukri "Apply" usually sends the profile at once, so Naukri applying is
+  REVIEW MODE ONLY: the job waits in the Review queue and only the user's "yes" clicks Apply;
+  follow-up questions are answered from verified answers, else paused. No Naukri dry-run apply.
+  LinkedIn: the user allowed opening ONE Easy Apply form to read its layout and discarding it.
 
 ## Environment notes
 

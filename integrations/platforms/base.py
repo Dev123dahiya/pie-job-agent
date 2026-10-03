@@ -52,8 +52,9 @@ class JobPlatform(Protocol):
     def apply(self, page: Any, url: str, *, dry_run: bool) -> dict[str, Any]: ...
 
 
-def classify_page(sel: PlatformSelectors, url: str, status: int | None, text: str) -> LoginCheck:
-    """Logged in, logged out or blocked, from what a page shows. Pure: easy to test."""
+def classify_page(sel: Any, url: str, status: int | None, text: str) -> LoginCheck:
+    """Logged in, logged out or blocked, from what a page shows. Pure: easy to test.
+    ``sel`` is a platform's selectors module (shaped like PlatformSelectors)."""
     low = text.lower()
     if status in (401, 403, 429, 999) or any(m in low for m in sel.BLOCKED_MARKERS):
         return LoginCheck("blocked", f"{sel.NAME} refused PIE's browser (HTTP {status}).", url)

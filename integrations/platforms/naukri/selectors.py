@@ -57,3 +57,19 @@ def search_page_url(keyword: str, location: str, page: int, experience_years: in
     jobs clearly outside the user's experience (REQUIREMENTS 5)."""
     url = search_url(keyword, location) + (f"-{page}" if page > 1 else "")
     return url + (f"?experience={experience_years}" if experience_years is not None else "")
+
+
+# --- job page: how to apply (checked on the live job pages 2026-10-04) -------------------
+# Either button appears (twice: top and bottom of the page). "Apply" sends the profile on
+# Naukri at once (no form first); "Apply on company site" opens the employer's own site.
+APPLY_BUTTON = "#apply-button"
+COMPANY_SITE_BUTTON = "#company-site-button"
+APPLY_SPEC = {
+    "card": f"{APPLY_BUTTON}, {COMPANY_SITE_BUTTON}",
+    "id_attr": "id",
+    "fields": {"text": {"css": None}},
+}
+# After clicking Apply (VERIFY on the first real application): the button reads "Applied",
+# or a chatbot drawer asks follow-up questions.
+APPLIED_TEXTS = ("applied", "you have successfully applied", "application sent")
+FOLLOW_UP_MARKER = "[class*='chatbot']"

@@ -1275,6 +1275,8 @@ def test_browser_manager_exposes_only_fixed_operations() -> None:
         # never from the agent; no agent tool reaches these.
         "read_cards",
         "read_page_text",
+        # The one Naukri click: only from naukri_apply.submit after the user's "yes".
+        "click_platform_apply",
     }
 
 
@@ -2661,7 +2663,7 @@ def test_runs_dry_run_apply_never_submits(
 def test_runs_refuse_what_is_not_allowed(client: Any, api: Any, ready_job: uuid.UUID) -> None:
     assert _start(client, steps=[]).status_code == 422
     assert _start(client, steps=["fly"]).status_code == 422
-    assert _start(client, steps=["apply"], platforms=["naukri"]).status_code == 422
+    assert _start(client, steps=["apply"], platforms=["linkedin"]).status_code == 422
     assert _start(client, steps=["apply"], mode="auto").status_code == 422  # not built
     assert _start(client, steps=["analyze"], analysis_limit=51).status_code == 422
     # Review mode is live: refused while DEVELOPMENT_MODE / the live switch say no.
@@ -2669,8 +2671,8 @@ def test_runs_refuse_what_is_not_allowed(client: Any, api: Any, ready_job: uuid.
     assert res.status_code == 422 and "DEVELOPMENT_MODE" in res.json()["detail"]
     opts = client.get("/api/runs/options").json()
     assert opts["default_mode"] == "dry-run" and opts["live_possible"] is False
-    naukri = next(p for p in opts["platforms"] if p["platform"] == "naukri")
-    assert naukri["apply_supported"] is False
+    linkedin = next(p for p in opts["platforms"] if p["platform"] == "linkedin")
+    assert linkedin["apply_supported"] is False
 
 
 def test_runs_review_mode_needs_the_exact_confirmation_and_never_submits(
@@ -2807,3 +2809,162 @@ def test_review_batch_approval_keeps_every_check(
     first, second = body["results"]
     assert first["code"] == "DAILY_LIMIT_REACHED" and site.submissions == []
     assert second["submitted"] is False
+
+
+# --- C4: Naukri apply, review mode only (fake Naukri browser: no site is contacted) ----------
+
+
+class FakeNaukri:
+    def __init__(self, button: str = "Apply", after: str = "Applied", follow_up: bool = False):
+        self.button, self.after, self.follow_up = button, after, follow_up
+        self.clicks: list[str] = []
+
+    def read_cards(self, url: str, spec: dict[str, Any], *, render_all: bool = False) -> Any:
+        ids = "company-site-button" if self.button == "Apply on company site" else "apply-button"
+        return {"status": 200, "url": url, "text": "job page",
+                "items": [{"id": ids, "text": self.button}]}  # fmt: skip
+
+    def click_platform_apply(self, url: str, button: str, expect: str, follow_up: str) -> Any:
+        self.clicks.append(url)
+        return {"url": url, "button_after": self.after, "follow_up": self.follow_up, "text": ""}
+
+
+@pytest.fixture
+def naukri_job(client: Any, api: Any, db: Session) -> uuid.UUID:
+    job = Job(
+        source="naukri", source_job_id="011026008731", title="Python Developer",
+        url="https://www.naukri.com/job-listings-python-developer-acme-011026008731",
+        location="Gurugram", description="Python, FastAPI", posted_at=utcnow(),
+        pipeline_state=S.SHORTLISTED,
+    )  # fmt: skip
+    db.add(job)
+    db.commit()
+    res = client.post(f"/api/jobs/{job.id}/application-draft", json={})
+    assert res.status_code == 200, res.text
+    assert job_state(db, job.id) is S.READY_TO_APPLY  # no tailored resume needed on Naukri
+    return job.id
+
+
+def _fake_naukri(client: Any, fake: FakeNaukri) -> None:
+    from backend.api.deps import platform_browser_dep
+
+    client.app.dependency_overrides[platform_browser_dep] = lambda: lambda platform: fake
+
+
+def _naukri_phrase(client: Any) -> str:
+    opts = client.get("/api/runs/options").json()
+    naukri = next(p for p in opts["platforms"] if p["platform"] == "naukri")
+    assert naukri["apply_supported"] is True
+    return str(naukri["review_confirmation"]["phrase"])
+
+
+def test_naukri_dry_run_only_reports(client: Any, api: Any, db: Session, naukri_job: Any) -> None:
+    fake = FakeNaukri()
+    _fake_naukri(client, fake)
+    res = _start(client, steps=["apply"], platforms=["naukri"])
+    run = client.get(f"/api/runs/{res.json()['run_id']}").json()
+    assert run["report"]["counts"] == {"naukri_would_wait_for_review": 1}
+    assert fake.clicks == [] and job_state(db, naukri_job) is S.READY_TO_APPLY
+
+
+def test_naukri_review_then_approve_clicks_once(
+    client: Any, api: Any, db: Session, live_settings: Settings, naukri_job: Any
+) -> None:
+    from backend.services.limits import usage
+
+    fake = FakeNaukri()
+    _fake_naukri(client, fake)
+    api["settings"] = live_settings
+    phrase = _naukri_phrase(client)
+    assert phrase == "LIVE on naukri: up to 15 today"
+    res = _start(client, steps=["apply"], platforms=["naukri"], mode="review", confirmation=phrase)
+    run = client.get(f"/api/runs/{res.json()['run_id']}").json()
+    assert run["report"]["counts"] == {"naukri_waiting_for_review": 1} and fake.clicks == []
+    [item] = client.get("/api/review").json()["items"]
+    assert item["platform"] == "naukri" and item["answers"] == []
+    ok = client.post(
+        f"/api/review/{item['session_id']}/approve",
+        json={"statement": item["confirmation_statement"]},
+    )
+    assert ok.status_code == 200 and ok.json()["submitted"] is True, ok.json()
+    assert len(fake.clicks) == 1 and job_state(db, naukri_job) is S.SUBMITTED
+    used = {
+        r.platform: r.used for r in usage(db, live_settings.automation_path, live_settings.timezone)
+    }
+    assert used["naukri"] == 1 and used["total"] == 1
+    again = client.post(
+        f"/api/review/{item['session_id']}/approve",
+        json={"statement": item["confirmation_statement"]},
+    )
+    assert again.status_code == 409 and len(fake.clicks) == 1  # never twice
+
+
+def test_naukri_company_site_jobs_go_to_manual_apply(
+    client: Any, api: Any, db: Session, live_settings: Settings, naukri_job: Any
+) -> None:
+    _fake_naukri(client, FakeNaukri(button="Apply on company site"))
+    api["settings"] = live_settings
+    _start(client, steps=["apply"], platforms=["naukri"], mode="review",
+           confirmation=_naukri_phrase(client))  # fmt: skip
+    assert job_state(db, naukri_job) is S.MANUAL_APPLY
+    [item] = client.get("/api/jobs/manual").json()["items"]
+    assert "company's own site" in item["reason"]
+
+
+def test_naukri_follow_up_questions_pause_for_the_user(
+    client: Any, api: Any, db: Session, live_settings: Settings, naukri_job: Any
+) -> None:
+    fake = FakeNaukri(after="Apply", follow_up=True)
+    _fake_naukri(client, fake)
+    api["settings"] = live_settings
+    _start(client, steps=["apply"], platforms=["naukri"], mode="review",
+           confirmation=_naukri_phrase(client))  # fmt: skip
+    [item] = client.get("/api/review").json()["items"]
+    out = client.post(
+        f"/api/review/{item['session_id']}/approve",
+        json={"statement": item["confirmation_statement"]},
+    ).json()
+    assert out["submitted"] is False and out["outcome"] == "AMBIGUOUS"
+    assert job_state(db, naukri_job) is S.BLOCKED_NEEDS_USER and len(fake.clicks) == 1
+    app_id = _app_id(db, naukri_job)
+    resolved = client.post(
+        f"/api/applications/{app_id}/sessions/{item['session_id']}/resolve",
+        json={"submitted": True, "note": "Answered Naukri's questions myself"},
+    )
+    assert resolved.status_code == 200 and job_state(db, naukri_job) is S.SUBMITTED
+
+
+def test_naukri_approve_respects_the_daily_limit(
+    client: Any, api: Any, db: Session, live_settings: Settings, naukri_job: Any, tmp_path: Path
+) -> None:
+    fake = FakeNaukri()
+    _fake_naukri(client, fake)
+    api["settings"] = live_settings
+    _start(client, steps=["apply"], platforms=["naukri"], mode="review",
+           confirmation=_naukri_phrase(client))  # fmt: skip
+    [item] = client.get("/api/review").json()["items"]
+    path = tmp_path / "automation.yaml"
+    path.write_text(
+        "daily_limits: {total: 20, naukri: 1, linkedin: 0, company_site: 10}", encoding="utf-8"
+    )
+    api["settings"] = live_settings.model_copy(update={"automation_path": path})
+    other = Job(source="naukri", source_job_id="999", title="Data Engineer",
+                url="https://www.naukri.com/job-listings-data-engineer-999",
+                pipeline_state=S.SUBMITTED)  # fmt: skip
+    db.add(other)
+    db.flush()
+    other_app = Application(job_id=other.id)
+    db.add(other_app)
+    db.flush()
+    db.add(SubmissionAttempt(idempotency_key="x" * 64, application_id=other_app.id,
+                             outcome=SubmissionOutcome.CONFIRMED))  # one sent today  # fmt: skip
+    db.commit()
+    out = client.post(
+        f"/api/review/{item['session_id']}/approve",
+        json={"statement": item["confirmation_statement"]},
+    ).json()
+    assert out["submitted"] is False and out.get("code") in (
+        "DAILY_LIMIT_REACHED",
+        "DUPLICATE_APPLICATION",
+    )
+    assert fake.clicks == []

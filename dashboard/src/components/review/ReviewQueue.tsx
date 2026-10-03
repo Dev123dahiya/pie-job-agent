@@ -174,6 +174,12 @@ export function ReviewQueue({ items }: { items: ReviewItem[] }) {
             </div>
             <div>
               <p className="mb-1 font-medium text-ink-2">Answers that will be filled</p>
+              {item.platform === "naukri" && (
+                <p className="text-ink-3">
+                  Naukri sends your Naukri profile and the resume saved there. If Naukri then asks questions, answer
+                  them in the open browser window.
+                </p>
+              )}
               <ul className="space-y-0.5">
                 {item.answers.map((a, i) => (
                   <li key={`${a.key}-${i}`} className="text-ink">

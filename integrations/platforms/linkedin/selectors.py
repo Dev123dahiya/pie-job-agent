@@ -59,10 +59,17 @@ def search_page_url(keyword: str, location: str, page: int, max_age_hours: int |
     return f"https://www.linkedin.com/jobs/search/?{urlencode(params)}"
 
 
-# --- Easy Apply (VERIFY all) ----------------------------------------------------------------
-EASY_APPLY_BUTTON = "button.jobs-apply-button"
-MODAL = "div.jobs-easy-apply-modal"
-NEXT_BUTTON = "button[aria-label='Continue to next step']"
-REVIEW_BUTTON = "button[aria-label='Review your application']"
-SUBMIT_BUTTON = "button[aria-label='Submit application']"
+# --- Easy Apply (checked on the live page 2026-10-04) --------------------------------------
+# The job page's button has aria-label "Easy Apply to this job". The form opens on the same
+# page as a panel headed "Apply to <company>" (no role=dialog; style class names are
+# scrambled), with buttons found by their text: Dismiss (aria), Back, Next, Review, Submit
+# application. LinkedIn keeps a started application and reopens it at the step it was left.
+EASY_APPLY_BUTTON_NAME = "Easy Apply to this job"
+PANEL_HEADING_PREFIX = "Apply to "
+NEXT_TEXT = "Next"
+REVIEW_TEXT = "Review"
+SUBMIT_TEXT = "Submit application"  # the ONE irreversible click; review mode + "yes" only
+DISMISS_LABEL = "Dismiss"
+DISCARD_TEXT = "Discard"
+SENT_TEXTS = ("application was sent", "application sent")  # VERIFY on the first submit
 MAX_STEPS = 8  # REQUIREMENTS 9: multi-step forms are capped; stuck = failed

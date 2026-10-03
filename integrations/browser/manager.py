@@ -594,6 +594,39 @@ class BrowserManager:
 
         return self._call(op)
 
+    def click_platform_apply(
+        self, url: str, button: str, expect_text: str, follow_up: str
+    ) -> dict[str, Any]:
+        """LIVE, irreversible: open a platform job page, check the apply ``button`` reads
+        exactly ``expect_text`` and click it once. Only called after the user's explicit
+        "yes" in the review queue (backend/services/naukri_apply.py). The tab is left open:
+        if the site asks follow-up questions, the user answers them there."""
+
+        def op() -> dict[str, Any]:
+            self._launch()
+            context = self._w.persistent or self._w.browser.new_context()
+            page = context.new_page()
+            page.set_default_timeout(self.timeout_ms)
+            page.goto(url, wait_until="domcontentloaded")
+            self._settle(page)
+            target = page.locator(button).first
+            if target.count() == 0:
+                raise BrowserError("NOT_FOUND", "The apply button is not on the job page")
+            before = " ".join(target.inner_text().split())
+            if before.lower() != expect_text.lower():
+                raise BrowserError("NOT_FOUND", f"The button reads '{before}', not '{expect_text}'")
+            target.click()
+            page.wait_for_timeout(5000)
+            after = page.locator(button).first
+            return {
+                "url": page.url,
+                "button_after": " ".join(after.inner_text().split()) if after.count() else None,
+                "follow_up": page.locator(follow_up).count() > 0,
+                "text": page.inner_text("body")[:3000] if page.locator("body").count() else "",
+            }
+
+        return self._call(op)
+
     def close(self, sid: str) -> None:
         self._call(lambda: self._close_live(sid))
 

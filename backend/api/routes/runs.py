@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from agent.tools import ToolRegistry
 from backend.api.deps import (
     browser_dep,
+    platform_browser_dep,
     profile_dep,
     registry_dep,
     rules_dep,
@@ -126,6 +127,7 @@ def start(
     browser: Annotated[Any, Depends(browser_dep)],
     factory: Annotated[sessionmaker[Session], Depends(session_factory_dep)],
     claude_factory: Annotated[Callable[[], Any], Depends(claude_factory_dep)],
+    platform_browser: Annotated[Callable[[str], Any], Depends(platform_browser_dep)],
 ) -> dict[str, Any]:
     req = PipelineRequest(
         steps=tuple(body.steps),
@@ -150,6 +152,7 @@ def start(
         registry=registry,
         browser=browser,
         claude_factory=claude_factory,
+        platform_browser=platform_browser,
     )
     background.add_task(PipelineService(factory).execute, run.id, req, deps)
     return {"run_id": str(run.id), "message": f"Started: {', '.join(req.steps)} ({req.mode})"}

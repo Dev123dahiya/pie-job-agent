@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.api.deps import browser_dep, profile_dep
+from backend.api.deps import browser_dep, platform_browser_dep, profile_dep
 from backend.api.routes.applications import confirmation_statement
 from backend.core.config import Settings, get_settings
 from backend.core.profile import UserProfile
@@ -33,6 +33,7 @@ DB = Annotated[Session, Depends(get_db)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 ProfileDep = Annotated[UserProfile, Depends(profile_dep)]
 BrowserDep = Annotated[Any, Depends(browser_dep)]
+PlatformBrowserDep = Annotated[Any, Depends(platform_browser_dep)]
 
 
 def _ctx(db: Session, settings: Settings, profile: UserProfile, browser: Any) -> svc.ExecContext:
@@ -120,7 +121,13 @@ class Approve(BaseModel):
 
 
 def _approve(
-    db: Session, settings: Settings, profile: UserProfile, browser: Any, sid: uuid.UUID, text: str
+    db: Session,
+    settings: Settings,
+    profile: UserProfile,
+    browser: Any,
+    sid: uuid.UUID,
+    text: str,
+    platform_browser: Any = None,
 ) -> dict[str, Any]:
     s, job = _waiting(db, sid)
     expected = confirmation_statement(job)
@@ -129,6 +136,12 @@ def _approve(
     ctx = _ctx(db, settings, profile, browser)
     try:
         svc.confirm_live_submission(db, settings, s.id, expected)
+        if platform_of(job) == "naukri":
+            from backend.services import naukri_apply
+
+            db.refresh(s)
+            out = naukri_apply.submit(db, settings, profile, platform_browser("naukri"), s)
+            return {"session_id": str(sid), **out}
         ctx.tool = "submit_application"
         out = svc.submit(ctx, s.id)
     except svc.ExecutionError as exc:
@@ -149,9 +162,10 @@ def approve(
     settings: SettingsDep,
     profile: ProfileDep,
     browser: BrowserDep,
+    platform_browser: PlatformBrowserDep,
 ) -> dict[str, Any]:
     """Yes: submit this one application (after every live check)."""
-    return _approve(db, settings, profile, browser, session_id, body.statement)
+    return _approve(db, settings, profile, browser, session_id, body.statement, platform_browser)
 
 
 class ApproveItem(BaseModel):
@@ -165,7 +179,12 @@ class ApproveBatch(BaseModel):
 
 @router.post("/approve-batch")
 def approve_batch(
-    body: ApproveBatch, db: DB, settings: SettingsDep, profile: ProfileDep, browser: BrowserDep
+    body: ApproveBatch,
+    db: DB,
+    settings: SettingsDep,
+    profile: ProfileDep,
+    browser: BrowserDep,
+    platform_browser: PlatformBrowserDep,
 ) -> dict[str, Any]:
     """Yes to several, each with its own exact statement. Each is submitted on its own; one
     refusal (e.g. the daily limit) is reported and never skips another's checks."""
@@ -173,7 +192,15 @@ def approve_batch(
     for item in body.items:
         try:
             results.append(
-                _approve(db, settings, profile, browser, item.session_id, item.statement)
+                _approve(
+                    db,
+                    settings,
+                    profile,
+                    browser,
+                    item.session_id,
+                    item.statement,
+                    platform_browser,
+                )  # fmt: skip
             )
         except HTTPException as exc:
             results.append(

@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 Step = Literal["discover", "analyze", "tailor", "apply"]
 STEPS: tuple[Step, ...] = ("discover", "analyze", "tailor", "apply")
 Mode = Literal["dry-run", "review"]
-BUILT_PLATFORMS: frozenset[Platform] = frozenset({"company_site"})
+BUILT_PLATFORMS: frozenset[Platform] = frozenset({"company_site", "naukri"})
 MAX_ANALYSIS = 50  # agreed cap for one run
 
 
@@ -96,6 +96,8 @@ class PipelineDeps:
     registry: ToolRegistry
     browser: Any
     claude_factory: Callable[[], Any] | None = None
+    # The visible, logged-in browser of a platform (Naukri / LinkedIn).
+    platform_browser: Callable[[str], Any] | None = None
 
 
 @dataclass
@@ -330,6 +332,24 @@ class PipelineService:
                     break
             log.heartbeat(f"Applying ({req.mode}): {job.title}"[:200])
             db.commit()
+            if platform_of(job) == "naukri":
+                if deps.platform_browser is None:
+                    break
+                from backend.services import naukri_apply
+
+                try:
+                    outcome = naukri_apply.prepare(
+                        db, deps.platform_browser("naukri"), job, run.id, dry_run=not live
+                    )
+                except Exception as exc:  # the platform browser failed: report, go on
+                    report.failures.append(_failure("apply", job, f"Naukri: {exc}"))
+                    continue
+                done += 1
+                report.add(f"naukri_{outcome}")
+                if outcome in ("blocked", "login_needed"):
+                    report.failures.append(_failure("apply", job, f"Naukri: {outcome}"))
+                    break
+                continue
             ctx = svc.ExecContext(
                 db=db,
                 settings=deps.settings,
