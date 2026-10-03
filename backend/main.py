@@ -24,6 +24,9 @@ from backend.api.routes import (
     review,
     runs,
 )
+from backend.api.routes import (
+    settings as settings_routes,
+)
 from backend.core.config import Settings, get_settings
 from backend.core.local_only import LocalOnlyMiddleware
 from backend.core.logging import configure_logging
@@ -82,6 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(needs_input.router, prefix="/api")
     app.include_router(runs.router, prefix="/api")
     app.include_router(review.router, prefix="/api")
+    app.include_router(settings_routes.router, prefix="/api")
 
     if settings.development_mode:
         logger.info("DEVELOPMENT_MODE is on: no real applications will be submitted")

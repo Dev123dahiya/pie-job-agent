@@ -2,6 +2,7 @@ import { type LogPage, logsQueryString } from "./logs";
 import type { ManualJob } from "@/components/manual/ManualList";
 import type { FailedList } from "./failed";
 import type { NeedsInput } from "./needsInput";
+import type { CurrentSettings } from "./settings";
 import type { PipelineRunDetail, ReviewItem, RunOptions, RunSummary } from "./runs";
 import type {
   AgentStatus,
@@ -219,4 +220,9 @@ export function getPipelineRun(id: string, fetchImpl?: typeof fetch) {
 /** LIVE applications prepared and waiting for the user's yes/no. */
 export function getReviewQueue(fetchImpl?: typeof fetch) {
   return fetched<{ items: ReviewItem[]; total: number }>("/api/review", fetchImpl);
+}
+
+/** Current settings (search, limits, minimum score, standard answers). */
+export function getSettings(fetchImpl?: typeof fetch) {
+  return fetched<CurrentSettings>("/api/settings", fetchImpl);
 }
