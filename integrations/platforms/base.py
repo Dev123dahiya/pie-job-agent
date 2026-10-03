@@ -104,3 +104,27 @@ def slug(text: str) -> str:
 
 def as_dict(check: LoginCheck) -> dict[str, Any]:
     return asdict(check)
+
+
+_AGE = re.compile(
+    r"(?P<n>\d+)\+?\s*(?P<unit>minute|min|hour|hr|day|week|month)s?\s+ago", re.IGNORECASE
+)
+_RECENT = re.compile(r"\b(just now|today|few hours ago|moments ago|now)\b", re.IGNORECASE)
+_UNIT_HOURS = {"minute": 1 / 60, "min": 1 / 60, "hour": 1, "hr": 1, "day": 24, "week": 168,
+               "month": 720}  # fmt: skip
+
+
+def parse_relative_age(text: str, seen: datetime) -> datetime | None:
+    """The OLDEST time a relative age can mean, so a job never looks fresher than it is:
+    "2 days ago" -> 3 days before ``seen``; "5 hours ago" -> 6 hours; "today" -> 24 hours;
+    "30+ days ago" -> 31 days. None when there is no age in the text."""
+    from datetime import timedelta
+
+    m = _AGE.search(text or "")
+    if m:
+        unit = m["unit"].lower()
+        hours = (int(m["n"]) + 1) * _UNIT_HOURS[unit]
+        return seen - timedelta(hours=hours)
+    if _RECENT.search(text or ""):
+        return seen - timedelta(hours=24)
+    return None

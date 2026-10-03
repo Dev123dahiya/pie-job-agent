@@ -53,9 +53,9 @@ after Phase C".
 
 - [x] C1 Common platform interface (login check, search_jobs, get_job_details, apply); one
       selectors file per platform
-- [~] C2 "Log in once" command (built: `python -m backend.scripts.login naukri --test-search`) with a persistent browser profile; expired session pauses the
+- [x] C2 "Log in once" command (built: `python -m backend.scripts.login naukri --test-search`) with a persistent browser profile; expired session pauses the
       platform. Needs you: log in to Naukri once (OTP)
-- [ ] C3 Naukri search from config (keywords, locations, experience, freshness, exclusions);
+- [x] C3 Naukri search from config (live-checked 2026-10-04: 20 cards/page, Naukri's own experience filter) (keywords, locations, experience, freshness, exclusions);
       skip out-of-range experience before scoring; cross-site duplicate check
 - [ ] C4 Naukri direct apply (dry-run first); redirects go to the company-site flow or the
       manual-apply list; step cap on multi-step forms
@@ -69,7 +69,7 @@ after Phase C".
 
 ### Phase D: LinkedIn Easy Apply
 
-- [~] D-1 LinkedIn module behind the same interface (login check + selectors file built) (search + Easy Apply), limit 5/day.
+- [~] D-1 LinkedIn module behind the same interface (login + Easy Apply search done, live-checked 2026-10-04: 25 cards/page; Easy Apply itself to do) (search + Easy Apply), limit 5/day.
       Needs you: log in to LinkedIn once; a dry-run, then a review-mode run
 
 ### Phase E: answers, models, auto mode
@@ -126,6 +126,8 @@ after Phase C".
   disguising the browser. Next: the user runs
   `python -m backend.scripts.login linkedin --test-search` (and the same for naukri); then PIE
   reads the real, logged-in pages to verify selectors and build search + apply.
+- 2026-10-04: both logins work and neither site blocked PIE's visible browser. Search works on
+  both. Next: Naukri direct apply (C4) and LinkedIn Easy Apply, dry run first.
 
 ## Environment notes
 

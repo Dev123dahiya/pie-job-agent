@@ -128,6 +128,27 @@ skills_vocabulary:
   - Distributed Systems
 
 sources:
+  # Naukri and LinkedIn (Easy Apply): search pages read in a VISIBLE browser that uses your
+  # own login (log in once: python -m backend.scripts.login naukri / linkedin). Low volume:
+  # max_searches keyword x location searches, `pages` result pages each, `max_details` job
+  # pages opened per run, a pause between pages. A login page pauses the source; a refusal
+  # (bot protection) stops it - PIE never disguises its browser.
+  - name: naukri
+    type: naukri
+    enabled: true
+    max_searches: 4
+    pages: 1
+    max_details: 15
+    request_delay_seconds: 8.0
+
+  - name: linkedin
+    type: linkedin
+    enabled: true
+    max_searches: 3
+    pages: 1
+    max_details: 10
+    request_delay_seconds: 10.0
+
   # Greenhouse Job Board API: official, public, documented, no login required.
   # https://developers.greenhouse.io/job-board.html
   # Add or remove company board tokens (the name in boards.greenhouse.io/<token>).

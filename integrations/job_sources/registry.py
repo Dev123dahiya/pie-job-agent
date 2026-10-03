@@ -27,6 +27,35 @@ def _greenhouse(cfg: SourceConfig, all_cfg: JobSourcesConfig, settings: Settings
     )
 
 
+def _platform(kind: str) -> "Factory":
+    """Naukri / LinkedIn: search pages read in the platform's own visible browser."""
+
+    def build(cfg: SourceConfig, all_cfg: JobSourcesConfig, settings: Settings) -> JobSource:
+        from backend.core.config import REPO_ROOT
+        from backend.core.profile import load_user_profile
+        from integrations.job_sources.platforms import LinkedInSource, NaukriSource
+        from integrations.platforms.browser import get_platform_browser
+
+        def years() -> float | None:
+            facts = load_user_profile(settings.user_profile_path).verified_profile
+            set_by_user = "total_experience_years" in facts.model_fields_set
+            return facts.total_experience_years if set_by_user else None
+
+        cls = NaukriSource if kind == "naukri" else LinkedInSource
+        return cls(
+            browser=get_platform_browser(kind, settings),
+            skills_vocabulary=all_cfg.skills_vocabulary,
+            data_dir=REPO_ROOT / "data",
+            max_searches=int(cfg.options.get("max_searches", 4)),
+            pages=int(cfg.options.get("pages", 1)),
+            max_details=int(cfg.options.get("max_details", 15)),
+            request_delay_seconds=_delay(cfg, 8.0),
+            experience_years=years,
+        )
+
+    return build
+
+
 def _mock(cfg: SourceConfig, all_cfg: JobSourcesConfig, settings: Settings) -> JobSource:
     return MockSource(skills_vocabulary=all_cfg.skills_vocabulary)
 
@@ -100,6 +129,8 @@ FACTORIES: dict[str, Factory] = {
     "remotive": _remotive,
     "adzuna": _adzuna,
     "mock": _mock,
+    "naukri": _platform("naukri"),
+    "linkedin": _platform("linkedin"),
 }
 
 

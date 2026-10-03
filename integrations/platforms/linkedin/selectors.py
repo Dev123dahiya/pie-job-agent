@@ -28,11 +28,36 @@ def search_url(keyword: str, location: str) -> str:
     return f"https://www.linkedin.com/jobs/search/?{query}"
 
 
-# --- search results (VERIFY all) ----------------------------------------------------------
-JOB_CARD = "div.job-card-container"
-CARD_TITLE = "a.job-card-list__title, a.job-card-container__link"
-CARD_COMPANY = ".artdeco-entity-lockup__subtitle"
-CARD_LOCATION = ".job-card-container__metadata-item"
+# --- search results (checked on the live, logged-in page 2026-10-04) ------------------------
+# 25 list items per page carry the job id; LinkedIn draws a card's contents only once it is
+# scrolled into view, so every item is scrolled to before reading.
+JOB_CARD = "li[data-occludable-job-id]"
+CARD_SPEC = {
+    "card": JOB_CARD,
+    "id_attr": "data-occludable-job-id",
+    "fields": {
+        "title": {"css": "a.job-card-container__link", "attr": "aria-label"},
+        "company": {"css": ".artdeco-entity-lockup__subtitle"},
+        "location": {"css": ".job-card-container__metadata-wrapper li"},
+        "posted": {"css": "time", "attr": "datetime"},  # VERIFY: not on every card
+        "footer": {"css": ".job-card-list__footer-wrapper"},
+    },
+}
+
+
+def job_url(job_id: str) -> str:
+    return f"https://www.linkedin.com/jobs/view/{job_id}/"
+
+
+def search_page_url(keyword: str, location: str, page: int, max_age_hours: int | None) -> str:
+    """25 per page (start=0, 25, ...); f_TPR limits results to the freshness window."""
+    params = {"keywords": keyword, "location": location, "f_AL": "true", "sortBy": "DD"}
+    if max_age_hours:
+        params["f_TPR"] = f"r{max_age_hours * 3600}"
+    if page > 1:
+        params["start"] = str((page - 1) * 25)
+    return f"https://www.linkedin.com/jobs/search/?{urlencode(params)}"
+
 
 # --- Easy Apply (VERIFY all) ----------------------------------------------------------------
 EASY_APPLY_BUTTON = "button.jobs-apply-button"

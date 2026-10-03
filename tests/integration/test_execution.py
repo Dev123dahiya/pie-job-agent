@@ -1271,6 +1271,10 @@ def test_browser_manager_exposes_only_fixed_operations() -> None:
         "close",
         "shutdown",
         "crash_for_test",
+        # Read-only platform pages (C3/D): the selectors spec comes from a selectors file,
+        # never from the agent; no agent tool reaches these.
+        "read_cards",
+        "read_page_text",
     }
 
 

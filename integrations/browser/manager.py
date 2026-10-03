@@ -27,6 +27,24 @@ from integrations.browser.signals import domain_of, redact_url
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
+
+# Fixed page scripts for reading search results; their only input is a selectors-file spec.
+READ_CARDS = """(spec) => [...document.querySelectorAll(spec.card)].map((card) => {
+  const out = { id: spec.id_attr ? card.getAttribute(spec.id_attr) : null };
+  for (const [name, f] of Object.entries(spec.fields)) {
+    const el = f.css ? card.querySelector(f.css) : card;
+    if (!el) { out[name] = null; continue; }
+    const value = f.attr ? el.getAttribute(f.attr) : el.innerText;
+    out[name] = value == null ? null : String(value).trim().slice(0, 2000);
+  }
+  return out;
+})"""
+RENDER_ALL = """async (card) => {
+  for (const el of document.querySelectorAll(card)) {
+    el.scrollIntoView({ block: "center" });
+    await new Promise((r) => setTimeout(r, 150));
+  }
+}"""
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
@@ -517,6 +535,64 @@ class BrowserManager:
             return path
 
         return self._call(op, timeout)
+
+    # --- read-only platform pages (search results, job pages) -------------------------------
+
+    def read_cards(
+        self, url: str, spec: dict[str, Any], *, render_all: bool = False
+    ) -> dict[str, Any]:
+        """Open ``url`` in a new tab, read every card matching ``spec`` and close the tab.
+        ``spec`` comes only from a platform's selectors file (never from the agent):
+        {"card": css, "id_attr": name | None, "fields": {name: {"css": css, "attr": name}}}.
+        ``render_all`` scrolls each card into view first (lists that draw lazily)."""
+
+        def op() -> dict[str, Any]:
+            self._launch()
+            context = self._w.persistent or self._w.browser.new_context()
+            page = context.new_page()
+            try:
+                page.set_default_timeout(self.timeout_ms)
+                response = page.goto(url, wait_until="domcontentloaded")
+                self._settle(page)
+                page.wait_for_timeout(2500)
+                if render_all:
+                    page.evaluate(RENDER_ALL, spec["card"])
+                items = page.evaluate(READ_CARDS, spec)
+                text = page.inner_text("body")[:3000] if page.locator("body").count() else ""
+                return {
+                    "status": response.status if response else None,
+                    "url": page.url,
+                    "text": text,
+                    "items": items,
+                }
+            finally:
+                page.close()
+                if context is not self._w.persistent:
+                    context.close()
+
+        return self._call(op)
+
+    def read_page_text(self, url: str, limit: int = 12_000) -> dict[str, Any]:
+        """Open ``url`` in a new tab and return its visible text (for job descriptions)."""
+
+        def op() -> dict[str, Any]:
+            self._launch()
+            context = self._w.persistent or self._w.browser.new_context()
+            page = context.new_page()
+            try:
+                page.set_default_timeout(self.timeout_ms)
+                response = page.goto(url, wait_until="domcontentloaded")
+                self._settle(page)
+                page.wait_for_timeout(1500)
+                text = page.inner_text("body") if page.locator("body").count() else ""
+                return {"status": response.status if response else None, "url": page.url,
+                        "text": text[:limit]}  # fmt: skip
+            finally:
+                page.close()
+                if context is not self._w.persistent:
+                    context.close()
+
+        return self._call(op)
 
     def close(self, sid: str) -> None:
         self._call(lambda: self._close_live(sid))

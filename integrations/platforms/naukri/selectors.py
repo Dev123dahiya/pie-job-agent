@@ -29,3 +29,31 @@ CARD_COMPANY = "a.comp-name"
 CARD_EXPERIENCE = "span.expwdth"
 CARD_LOCATION = "span.locWdth"
 CARD_POSTED = "span.job-post-day"
+CARD_SALARY = "span.sal-wrap"
+CARD_SNIPPET = "span.job-desc"
+CARD_TAGS = "ul.tags-gt"
+
+# Checked on the live, logged-in search page 2026-10-04: 20 cards per page, each with a
+# data-job-id; the title link is the job's own page.
+CARD_SPEC = {
+    "card": JOB_CARD,
+    "id_attr": "data-job-id",
+    "fields": {
+        "title": {"css": CARD_TITLE},
+        "url": {"css": CARD_TITLE, "attr": "href"},
+        "company": {"css": CARD_COMPANY},
+        "experience": {"css": CARD_EXPERIENCE},
+        "salary": {"css": CARD_SALARY},
+        "location": {"css": CARD_LOCATION},
+        "snippet": {"css": CARD_SNIPPET},
+        "tags": {"css": CARD_TAGS},
+        "posted": {"css": CARD_POSTED},
+    },
+}
+
+
+def search_page_url(keyword: str, location: str, page: int, experience_years: int | None) -> str:
+    """Page 1 is the plain URL, page N appends -N. ``experience`` makes Naukri itself drop
+    jobs clearly outside the user's experience (REQUIREMENTS 5)."""
+    url = search_url(keyword, location) + (f"-{page}" if page > 1 else "")
+    return url + (f"?experience={experience_years}" if experience_years is not None else "")
