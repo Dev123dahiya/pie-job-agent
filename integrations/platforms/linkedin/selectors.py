@@ -73,3 +73,12 @@ DISMISS_LABEL = "Dismiss"
 DISCARD_TEXT = "Discard"
 SENT_TEXTS = ("application was sent", "application sent")  # VERIFY on the first submit
 MAX_STEPS = 8  # REQUIREMENTS 9: multi-step forms are capped; stuck = failed
+
+# A daily quota or warning message: PIE stops on this platform at once (REQUIREMENTS 10).
+# VERIFY: the exact wording appears only when it happens; these patterns are deliberately broad.
+QUOTA_PATTERN = (
+    r"(daily|today'?s?)\s+(apply|application|easy apply)\s+limit"
+    r"|(reached|hit|exceeded)\b[^.\n]{0,40}\b(apply|application|daily)\b[^.\n]{0,20}\blimit"
+    r"|limit\s+(of\s+)?(applies|applications)\s+(for\s+)?today"
+    r"|unusual activity|temporarily restricted|we've restricted your account"
+)

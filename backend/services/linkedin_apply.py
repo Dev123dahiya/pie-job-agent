@@ -26,6 +26,7 @@ from database.enums import BrowserExecutionMode, BrowserSessionState, Submission
 from database.enums import JobPipelineState as S
 from database.models import Application, BrowserSession, Job, SubmissionAttempt
 from integrations.browser.manager import BrowserError
+from integrations.platforms.base import quota_warning
 from integrations.platforms.linkedin import selectors as linkedin
 
 B = BrowserSessionState
@@ -73,6 +74,11 @@ def run(ctx: svc.ExecContext, job: Job) -> dict[str, Any]:
         bank = svc._bank(ctx, app)
         filled: list[dict[str, Any]] = []
         for step in range(1, linkedin.MAX_STEPS + 1):
+            warning = quota_warning(linkedin, str(panel.get("ui_text") or ""))
+            if warning:
+                raise svc.ExecutionError(
+                    "PLATFORM_QUOTA", f"LinkedIn shows a limit/warning ('{warning}'): stopped"
+                )
             session.state, session.current_step = B.FILLING, f"Easy Apply step {step}"
             plans = _plans(panel, bank, job)
             missing = [p for p in plans if p["action"] == "block"]
@@ -136,6 +142,15 @@ def run(ctx: svc.ExecContext, job: Job) -> dict[str, Any]:
         )
     except (BrowserError, svc.ExecutionError) as exc:
         message = exc.message if isinstance(exc, svc.ExecutionError) else f"Browser: {exc}"
+        if isinstance(exc, svc.ExecutionError) and exc.code == "PLATFORM_QUOTA":
+            # Not this job's fault: close the form, keep the job queued, stop on LinkedIn.
+            ctx.browser.panel_discard(sid, linkedin.DISMISS_LABEL, linkedin.DISCARD_TEXT)
+            session.state, session.closed_at = B.CLOSED, utcnow()
+            session.current_step = message
+            svc._move(ctx, job, app, S.READY_TO_APPLY, message)
+            svc._event(ctx, job, app, "platform_quota", message)
+            ctx.db.commit()
+            return {"outcome": "quota", "session_id": sid, "error": message}
         if not live:
             ctx.browser.panel_discard(sid, linkedin.DISMISS_LABEL, linkedin.DISCARD_TEXT)
         svc._fail(ctx, session, job, app, message)

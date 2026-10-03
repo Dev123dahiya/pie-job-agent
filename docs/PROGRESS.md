@@ -61,7 +61,7 @@ after Phase C".
       manual-apply list; step cap on multi-step forms
 - [x] C5 Needs-my-input: save unanswered questions, answer once, reuse next time (page done)
 - [x] C6 Review mode: wait for yes/no before submit (Runs page review mode + Review queue)
-- [ ] C7 Stop on daily limit or a platform quota/warning message
+- [x] C7 Stop on daily limit or a platform quota/warning message (patterns in each selectors file; exact wording VERIFY when it first appears)
 - [x] C8 Reliability: restart the browser after a freeze; clean up sessions of a dead run
 - [x] C9 Pages: Review queue, Needs my input, Manual apply, Failed (retry), Runs (start/stop,
       live progress, history), Settings (validated, backed up, diff shown)

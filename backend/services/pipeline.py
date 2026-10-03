@@ -60,7 +60,7 @@ MAX_ANALYSIS = 50  # agreed cap for one run
 # Execution refusals that apply to every remaining job: stop the apply step.
 STOP_APPLYING = frozenset(
     {"DAILY_LIMIT_REACHED", "LIVE_NOT_ENABLED", "DEVELOPMENT_MODE_BLOCKED",
-     "VISIBLE_BROWSER_REQUIRED"}
+     "VISIBLE_BROWSER_REQUIRED", "PLATFORM_QUOTA"}
 )  # fmt: skip
 DRAFT_OUTCOME = {
     JobPipelineState.READY_TO_APPLY: "ready_to_apply",
@@ -346,7 +346,7 @@ class PipelineService:
                     continue
                 done += 1
                 report.add(f"naukri_{outcome}")
-                if outcome in ("blocked", "login_needed"):
+                if outcome in ("blocked", "login_needed", "quota"):
                     report.failures.append(_failure("apply", job, f"Naukri: {outcome}"))
                     break
                 continue
@@ -372,6 +372,8 @@ class PipelineService:
                 report.add(f"linkedin_{li['outcome']}")
                 if li.get("error"):
                     report.failures.append(_failure("apply", job, f"LinkedIn: {li['error']}"))
+                if li["outcome"] == "quota":
+                    break  # a quota or warning message: stop on LinkedIn at once
                 continue
             ctx = svc.ExecContext(
                 db=db,

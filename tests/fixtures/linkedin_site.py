@@ -22,6 +22,7 @@ PAGE = """<!doctype html><html><head><title>Job | LinkedIn</title></head><body>
 <script>
 const CASE = "%CASE%";
 const STEPS = [
+  (CASE === "quota" ? `<p>You've reached the Easy Apply application limit for today.</p>` : "") +
   `<h3>Contact info</h3>
    <label for="email">Email address</label>
    <select id="email" required><option value="">Select an option</option>

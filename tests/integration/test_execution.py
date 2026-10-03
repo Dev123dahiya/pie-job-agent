@@ -3087,3 +3087,44 @@ def test_linkedin_dry_run_sessions_can_never_submit(browser: Any, li_site: Any) 
         browser.panel_click(sid, "Submit application")  # only Next / Review / Back
     browser.panel_discard(sid, "Dismiss", "Discard")
     assert li_site.submissions == []
+
+
+# --- C7: a daily-quota / warning message stops the platform at once ------------------------
+
+
+def test_linkedin_quota_message_stops_and_keeps_the_job(
+    client: Any, api: Any, db: Session, li_job: Any, li_site: Any
+) -> None:
+    first, second = li_job("quota"), li_job("normal")
+    run = _li_run(client)
+    assert run["report"]["counts"] == {"linkedin_quota": 1}  # the second job was not tried
+    assert job_state(db, first) is S.READY_TO_APPLY and job_state(db, second) is S.READY_TO_APPLY
+    assert li_site.submissions == [] and "quota" in li_site.discards
+
+
+def test_naukri_quota_message_stops_the_run(
+    client: Any, api: Any, db: Session, live_settings: Settings, naukri_job: Any
+) -> None:
+    fake = FakeNaukri()
+    fake.read_cards = lambda url, spec, render_all=False: {  # type: ignore[method-assign]
+        "status": 200, "url": url, "items": [{"id": "apply-button", "text": "Apply"}],
+        "text": "You have reached your daily apply limit. Try again tomorrow.",
+    }  # fmt: skip
+    _fake_naukri(client, fake)
+    api["settings"] = live_settings
+    res = _start(client, steps=["apply"], platforms=["naukri"], mode="review",
+                 confirmation=_naukri_phrase(client))  # fmt: skip
+    run = client.get(f"/api/runs/{res.json()['run_id']}").json()
+    assert run["report"]["counts"] == {"naukri_quota": 1}
+    assert job_state(db, naukri_job) is S.READY_TO_APPLY and fake.clicks == []
+
+
+def test_quota_patterns() -> None:
+    from integrations.platforms.base import quota_warning
+    from integrations.platforms.linkedin import selectors as li
+    from integrations.platforms.naukri import selectors as nk
+
+    assert quota_warning(li, "You've reached the Easy Apply application limit for today")
+    assert quota_warning(nk, "You have reached your daily apply limit")
+    assert quota_warning(li, "We noticed unusual activity on your account")
+    assert quota_warning(nk, "Python developer, 2 years, no limit on growth") is None

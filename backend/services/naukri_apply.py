@@ -38,7 +38,7 @@ from database.enums import JobPipelineState as S
 from database.models import Application, ApplicationEvent, BrowserSession, Job, SubmissionAttempt
 from database.state_machine import assert_transition
 from integrations.browser.manager import BrowserError
-from integrations.platforms.base import classify_page
+from integrations.platforms.base import classify_page, quota_warning
 from integrations.platforms.naukri import selectors as naukri
 
 READY_STEP = "Ready: approving sends your Naukri profile and its saved resume"
@@ -66,11 +66,12 @@ def prepare(
     if app is None or job.pipeline_state is not S.READY_TO_APPLY:
         return "unknown"
     res = browser.read_cards(job.url, naukri.APPLY_SPEC)
-    check = classify_page(
-        naukri, str(res.get("url") or ""), res.get("status"), str(res.get("text") or "")
-    )
+    text = str(res.get("text") or "")
+    check = classify_page(naukri, str(res.get("url") or ""), res.get("status"), text)
     if check.state == "blocked":
         return "blocked"
+    if quota_warning(naukri, text):
+        return "quota"
     if any(p in str(res.get("url") or "").lower() for p in naukri.LOGGED_OUT_URL_PARTS):
         return "login_needed"
     buttons = {i["id"]: " ".join(str(i.get("text") or "").split()) for i in res.get("items") or []}
@@ -161,6 +162,16 @@ def submit(
         db.commit()
         return {"submitted": False, "outcome": "UNKNOWN", "state": session.state.value}
 
+    warning = quota_warning(naukri, str(out.get("text") or ""))
+    if warning:
+        attempt.outcome = SubmissionOutcome.AMBIGUOUS
+        attempt.evidence = {"quota_warning": warning}
+        svc._block(ctx, session, job, app,
+                   f"Naukri shows a limit/warning ('{warning}'). PIE stopped applying on Naukri. "
+                   "Check 'Applied jobs' on Naukri and say whether this one was sent.",
+                   {"quota_warning": warning})  # fmt: skip
+        db.commit()
+        return {"submitted": False, "outcome": "QUOTA", "state": session.state.value}
     after = (out.get("button_after") or "").lower()
     text = (out.get("text") or "").lower()
     evidence = {"button_after": out.get("button_after"), "follow_up": out.get("follow_up"),

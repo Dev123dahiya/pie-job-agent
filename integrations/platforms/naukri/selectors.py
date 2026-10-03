@@ -73,3 +73,12 @@ APPLY_SPEC = {
 # or a chatbot drawer asks follow-up questions.
 APPLIED_TEXTS = ("applied", "you have successfully applied", "application sent")
 FOLLOW_UP_MARKER = "[class*='chatbot']"
+
+# A daily quota or warning message: PIE stops on this platform at once (REQUIREMENTS 10).
+# VERIFY: the exact wording appears only when it happens; these patterns are deliberately broad.
+QUOTA_PATTERN = (
+    r"(daily|today'?s?)\s+(apply|application|easy apply)\s+limit"
+    r"|(reached|hit|exceeded)\b[^.\n]{0,40}\b(apply|application|daily)\b[^.\n]{0,20}\blimit"
+    r"|limit\s+(of\s+)?(applies|applications)\s+(for\s+)?today"
+    r"|unusual activity|temporarily restricted|we've restricted your account"
+)

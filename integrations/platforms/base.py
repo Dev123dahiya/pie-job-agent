@@ -129,3 +129,9 @@ def parse_relative_age(text: str, seen: datetime) -> datetime | None:
     if _RECENT.search(text or ""):
         return seen - timedelta(hours=24)
     return None
+
+
+def quota_warning(sel: Any, text: str) -> str | None:
+    """The platform's daily-quota / warning wording found in ``text``, or None."""
+    m = re.search(getattr(sel, "QUOTA_PATTERN", r"(?!)"), text or "", re.IGNORECASE)
+    return m.group(0) if m else None
