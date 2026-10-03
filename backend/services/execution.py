@@ -48,6 +48,7 @@ from agent.execution.mapping import (
 )
 from backend.core.config import Settings, live_execution_block
 from backend.core.profile import UserProfile
+from backend.services.limits import limit_block
 from backend.services.readiness import evaluate_readiness, user_blockers
 from database.base import utcnow
 from database.enums import (
@@ -142,6 +143,25 @@ def check_live(settings: Settings) -> None:
             "VISIBLE_BROWSER_REQUIRED",
             "Live sessions may need you (CAPTCHA, OTP, login): set BROWSER_HEADLESS=false.",
         )
+
+
+def check_daily_limit(
+    ctx: ExecContext, session: BrowserSession | None, job: Job, app: Application
+) -> None:
+    """Raise when a live application for this job would go over today's limits."""
+    reason = limit_block(ctx.db, ctx.settings.automation_path, ctx.settings.timezone, job)
+    if reason is None:
+        return
+    _log(
+        ctx,
+        session,
+        f"Refused: {reason}",
+        ExternalActionResult.REFUSED,
+        application_id=app.id,
+        domain=domain_of(job.application_url or job.url),
+    )
+    ctx.db.commit()
+    raise ExecutionError("DAILY_LIMIT_REACHED", reason)
 
 
 # --- helpers ------------------------------------------------------------------------------
@@ -695,6 +715,8 @@ def open_application(ctx: ExecContext, job_id: uuid.UUID) -> dict[str, Any]:
         )
         ctx.db.commit()
         raise ExecutionError("DUPLICATE_APPLICATION", duplicate)
+    if ctx.mode is BrowserExecutionMode.LIVE:
+        check_daily_limit(ctx, existing, job, app)
 
     resuming = existing is not None and existing.state is B.WAITING_FOR_USER
     state = job.pipeline_state
@@ -1272,6 +1294,7 @@ def submit(ctx: ExecContext, session_id: uuid.UUID) -> dict[str, Any]:
         _log(ctx, session, f"Submit refused: {duplicate}", ExternalActionResult.REFUSED)
         ctx.db.commit()
         raise ExecutionError("DUPLICATE_APPLICATION", duplicate)
+    check_daily_limit(ctx, session, job, app)  # again right before the click
     # 2. application state
     if job.pipeline_state is not S.READY_FOR_SUBMISSION:
         raise ExecutionError(

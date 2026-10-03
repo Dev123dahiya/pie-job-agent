@@ -24,9 +24,9 @@ of every step. No personal data here.
 | B2 | Move existing data to SQLite | Done (decision only: start fresh, see below) |
 | B3 | Failed browser runs are cleaned up, not stuck "in progress" | Done (approved) |
 | B4 | Failed jobs are never re-scored automatically | Done (approved) |
-| B5 | A resume linked to an in-progress or submitted application never changes | Done (committed, waiting for approval) |
-| B6 | Answers tool shows keys only, not values; key names match; whole-word "visa" | Done (committed, waiting for approval) |
-| B7 | Daily limits enforced in the backend (`config/automation.yaml`: total + per platform) | To do |
+| B5 | A resume linked to an in-progress or submitted application never changes | Done (approved) |
+| B6 | Answers tool shows keys only, not values; key names match; whole-word "visa" | Done (approved) |
+| B7 | Daily limits enforced in the backend (`config/automation.yaml`: total + per platform) | Done |
 | B8 | `requirements.txt` | To do |
 | B10 | Check `config/user_profile.yaml` is complete; match `config/job_sources.yaml` | Needs you: fill the profile |
 
@@ -90,12 +90,16 @@ of every step. No personal data here.
 - Before the first analysis run: add the model-per-task setting (scoring on claude-sonnet-5-5,
   tailoring and answers on claude-opus-5-5), cap the run at 50 jobs, and give a usage estimate
   first.
-- Daily limits for `config/automation.yaml`: total 20, naukri 15, linkedin 5, company_site 10.
-  (The file doesn't exist yet. It gets created when the limits are enforced.)
+- Daily limits in `config/automation.yaml`: total 20, naukri 15, linkedin 5, company_site 10.
+  Counted: live submission attempts today (any outcome except "user says not sent"); dry runs
+  never count. Checked before a live session opens and again right before the submit click.
+  `daily_application_limit` in the profile is no longer used.
 - B6 includes the agent answers tool fix plus a test proving no answer values appear in the
   agent's action log.
 - Phase C: restart the browser after a freeze.
 - Experience-range filter moved to Phase C.
+- 2026-10-03: work through the to-do list without a plan check-in per phase; stop only for
+  steps that need the user, before deleting files or big rewrites. Dry-run stays the default.
 
 ## Environment notes
 

@@ -2272,3 +2272,118 @@ def test_agent_action_log_never_contains_answer_values(
         f"link {k}" for k in exec_profile.verified_profile.links
     }
     assert [k for k in _leaks(exec_profile, {"prompts": claude.prompts}) if k not in identity] == []
+
+
+# --- B7: daily limits, enforced in the backend ---------------------------------------------
+
+
+def with_limits(settings: Settings, tmp_path: Path, company_site: int, total: int = 20) -> Settings:
+    path = tmp_path / "automation.yaml"
+    path.write_text(
+        f"daily_limits: {{total: {total}, naukri: 15, linkedin: 5, company_site: {company_site}}}",
+        encoding="utf-8",
+    )
+    return settings.model_copy(update={"automation_path": path})
+
+
+def test_daily_limit_refuses_to_open_a_live_session(
+    db: Session,
+    live_settings: Settings,
+    exec_profile: UserProfile,
+    browser: Any,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+    tmp_path: Path,
+) -> None:
+    for settings in (
+        with_limits(live_settings, tmp_path, company_site=0),
+        with_limits(live_settings, tmp_path, company_site=10, total=0),
+    ):
+        with pytest.raises(svc.ExecutionError) as exc:
+            svc.open_application(ectx(db, settings, exec_profile, browser, live=True), ready_job)
+        assert exc.value.code == "DAILY_LIMIT_REACHED"
+        assert job_state(db, ready_job) is S.READY_TO_APPLY  # nothing was started
+    assert db.scalar(select(func.count()).select_from(BrowserSession)) == 0
+    refusals = db.scalars(
+        select(ExternalActionLog).where(ExternalActionLog.result == ExternalActionResult.REFUSED)
+    ).all()
+    assert len(refusals) == 2 and all("limit reached" in r.summary for r in refusals)
+    assert site.submissions == []
+
+
+def test_daily_limit_is_checked_again_right_before_submit(
+    db: Session,
+    live_settings: Settings,
+    exec_profile: UserProfile,
+    browser: Any,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+    tmp_path: Path,
+) -> None:
+    settings = with_limits(live_settings, tmp_path, company_site=1)
+    sid = prepare_live(db, settings, exec_profile, browser, ready_job)
+    confirm(db, settings, sid)
+    used_up = with_limits(live_settings, tmp_path, company_site=0)  # e.g. another job went first
+    agent = tctx(db, used_up, exec_profile, browser, LIVE)
+    refused = call(agent, "submit_application", session_id=sid)
+    assert refused.error_code is ToolErrorCode.DAILY_LIMIT_REACHED
+    assert site.submissions == [] and db.scalar(select(SubmissionAttempt)) is None
+    assert job_state(db, ready_job) is S.READY_FOR_SUBMISSION
+    call(agent, "close_application_session", session_id=sid)
+
+
+def test_live_submissions_use_up_the_limit_and_dry_runs_never_do(
+    db: Session,
+    exec_settings: Settings,
+    live_settings: Settings,
+    exec_profile: UserProfile,
+    browser: Any,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+    tmp_path: Path,
+) -> None:
+    from backend.services.limits import usage
+
+    def used() -> dict[str, int]:
+        db.expire_all()
+        rows = usage(db, settings.automation_path, settings.timezone)
+        return {r.platform: r.used for r in rows}
+
+    # A dry run with a used-up limit still runs (it never submits) and uses nothing.
+    dry_settings = with_limits(exec_settings, tmp_path, company_site=0)
+    out = svc.run_execution(ectx(db, dry_settings, exec_profile, browser), ready_job)
+    assert out["dry_run_complete"] is True and out["state"] == "CLOSED", out
+    settings = with_limits(live_settings, tmp_path, company_site=1)
+    assert used() == {"total": 0, "naukri": 0, "linkedin": 0, "company_site": 0}
+
+    sid = prepare_live(db, settings, exec_profile, browser, ready_job)
+    confirm(db, settings, sid)
+    agent = tctx(db, settings, exec_profile, browser, LIVE)
+    assert call(agent, "submit_application", session_id=sid).ok
+    assert used() == {"total": 1, "naukri": 0, "linkedin": 0, "company_site": 1}
+
+    attempt = db.scalar(select(SubmissionAttempt))
+    assert attempt is not None
+    attempt.outcome = SubmissionOutcome.USER_NOT_SUBMITTED  # the user says it never went out
+    db.commit()
+    assert used()["company_site"] == 0
+    attempt.outcome = SubmissionOutcome.AMBIGUOUS  # may have reached the employer: counts
+    db.commit()
+    assert used()["company_site"] == 1
+    from datetime import timedelta
+
+    attempt.attempted_at = utcnow() - timedelta(days=1)  # yesterday's don't count today
+    db.commit()
+    assert used()["company_site"] == 0
+
+
+def test_api_shows_todays_limits(client: Any, api: Any) -> None:
+    rows = client.get("/api/dashboard/limits").json()
+    assert [r["platform"] for r in rows] == ["total", "naukri", "linkedin", "company_site"]
+    assert {r["platform"]: r["limit"] for r in rows} == {
+        "total": 20,
+        "naukri": 15,
+        "linkedin": 5,
+        "company_site": 10,
+    }
+    assert all(r["used"] == 0 and r["remaining"] == r["limit"] for r in rows)

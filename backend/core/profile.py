@@ -102,7 +102,7 @@ class JobPreferences(BaseModel):
     excluded_companies: list[str] = Field(default_factory=list)
     # Jobs posted within this window are "fresh"; older are "stale"; no date is "unknown".
     maximum_application_age_hours: int = 48
-    daily_application_limit: int = 20
+    daily_application_limit: int = 20  # unused; limits are in config/automation.yaml (B7)
 
 
 _VERIFIED_KEYS = set(VerifiedProfile.model_fields)

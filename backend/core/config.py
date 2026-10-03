@@ -47,6 +47,8 @@ class Settings(BaseSettings):
 
     job_sources_path: Path = REPO_ROOT / "config" / "job_sources.yaml"
     shortlist_rules_path: Path = REPO_ROOT / "config" / "shortlist_rules.yaml"
+    # Daily application limits (total + per platform); see backend/services/limits.py.
+    automation_path: Path = REPO_ROOT / "config" / "automation.yaml"
     # Identifies this tool honestly to job-board APIs.
     http_user_agent: str = "PIE-Job-Agent/0.1 (personal job search; low volume)"
 

@@ -68,4 +68,4 @@ preferences:
   excluded_roles: []
   excluded_companies: []
   maximum_application_age_hours: 48   # "fresh" window; jobs without a posting date are "unknown"
-  daily_application_limit: 20
+  daily_application_limit: 20   # not used: daily limits live in config/automation.yaml

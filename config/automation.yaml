@@ -1,0 +1,10 @@
+# Automation settings (REQUIREMENTS 10). Safe to commit: no personal data.
+#
+# Daily limits: live submissions per day (your timezone, TIMEZONE in .env), enforced by the
+# backend. A pending or unconfirmed submission counts too. Dry runs never count.
+# The LinkedIn limit must stay lower than the Naukri limit.
+daily_limits:
+  total: 20
+  naukri: 15
+  linkedin: 5
+  company_site: 10
