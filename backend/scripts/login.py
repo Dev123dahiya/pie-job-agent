@@ -3,6 +3,7 @@
     python -m backend.scripts.login naukri                 # log in, then check
     python -m backend.scripts.login naukri --check         # only re-check the saved session
     python -m backend.scripts.login naukri --test-search   # also try one search page
+    python -m backend.scripts.login linkedin --test-search
 
 A normal, visible browser opens with PIE's own profile for that platform (data/browser/<name>/,
 git-ignored). You type your login and OTP yourself; PIE never sees or stores your password.
@@ -16,9 +17,10 @@ from typing import Any
 
 from backend.core.config import REPO_ROOT
 from integrations.platforms.base import LoginCheck, classify_page, save_status
+from integrations.platforms.linkedin import selectors as linkedin
 from integrations.platforms.naukri import selectors as naukri
 
-PLATFORMS: dict[str, Any] = {"naukri": naukri}
+PLATFORMS: dict[str, Any] = {"naukri": naukri, "linkedin": linkedin}
 DATA_DIR = REPO_ROOT / "data"
 
 
@@ -74,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
             if search.state == "blocked":
                 save_status(DATA_DIR, args.platform, search)
                 print(f"Search page: BLOCKED - {search.detail}")
-                print("PIE will not try to get around this. Naukri stays a manual-apply platform.")
+                print(f"PIE will not try to get around this. {sel.NAME} stays manual-apply.")
             else:
                 cards = page.locator(sel.JOB_CARD).count()
                 print(f"Search page: loaded, {cards} job card(s) found with the current selectors.")

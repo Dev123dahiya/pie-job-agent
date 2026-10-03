@@ -3,8 +3,11 @@
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
 from backend.core.config import Settings, get_settings
+from backend.core.profile import load_user_profile
+from backend.services.needs_input import requeue_ready_jobs
 from backend.services.settings_editor import (
     SettingsChange,
     SettingsError,
@@ -12,6 +15,7 @@ from backend.services.settings_editor import (
     plan_changes,
     save_changes,
 )
+from database.session import get_db
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -43,13 +47,21 @@ def save(
     change: SettingsChange,
     settings: SettingsDep,
     backup_dir: Annotated[Any, Depends(backup_dir_dep)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> dict[str, Any]:
-    """Validate, back up the old files, save. Takes effect on the next run or page load."""
+    """Validate, back up the old files, save. Takes effect on the next run or page load.
+    New standard answers also put jobs that were only waiting for them back in the queue."""
     try:
         files = save_changes(settings, change, backup_dir)
     except SettingsError as exc:
         raise HTTPException(422, str(exc)) from exc
+    requeued: list[str] = []
+    if change.answers:
+        profile = load_user_profile(settings.user_profile_path)
+        requeued = requeue_ready_jobs(db, settings, profile, list(change.answers))
+        db.commit()
     return {
+        "requeued": requeued,
         "saved": [f.name for f in files],
         "files": [{"name": f.name, "diff": f.diff()} for f in files],
     }

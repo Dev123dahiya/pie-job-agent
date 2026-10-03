@@ -78,6 +78,7 @@ def test_save_backs_up_keeps_comments_and_syncs_search_and_profile(
         },
     )
     assert res.status_code == 200, res.text
+    assert res.json()["requeued"] == []  # no job was waiting for these answers
     assert set(res.json()["saved"]) == {
         "job_sources.yaml",
         "user_profile.yaml",

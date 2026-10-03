@@ -122,3 +122,12 @@ def test_home_shows_the_saved_naukri_login(db: Session, tmp_path: Any) -> None:
     save_status(tmp_path, "naukri", LoginCheck("blocked", "Naukri refused PIE's browser"))
     home = build_home(db, Settings(), data_dir=tmp_path)
     assert next(p for p in home.platforms if p.platform == "naukri").login == "blocked"
+
+
+def test_home_shows_both_platform_logins(db: Session, tmp_path: Any) -> None:
+    from backend.core.config import Settings
+    from backend.services.dashboard import build_home
+
+    home = build_home(db, Settings(), data_dir=tmp_path)
+    linkedin = next(p for p in home.platforms if p.platform == "linkedin")
+    assert linkedin.login == "never" and "login linkedin" in (linkedin.login_command or "")

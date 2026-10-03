@@ -28,7 +28,7 @@ of every step. No personal data here.
 | B6 | Answers tool shows keys only, not values; key names match; whole-word "visa" | Done (approved) |
 | B7 | Daily limits enforced in the backend (`config/automation.yaml`: total + per platform) | Done |
 | B8 | `requirements.txt` (+ `requirements-dev.txt`, exact tested versions) | Done |
-| B10 | Profile check; `current_ctc` + `total_experience` answers; search config matches the profile | Code done. Needs you: add `current_ctc` to `verified_answers` |
+| B10 | Profile check; `current_ctc` + `total_experience` answers; search config matches the profile | Done (current CTC saved 2026-10-04) |
 
 ## To-do list (remaining work)
 
@@ -69,7 +69,7 @@ after Phase C".
 
 ### Phase D: LinkedIn Easy Apply
 
-- [ ] D-1 LinkedIn module behind the same interface (search + Easy Apply), limit 5/day.
+- [~] D-1 LinkedIn module behind the same interface (login check + selectors file built) (search + Easy Apply), limit 5/day.
       Needs you: log in to LinkedIn once; a dry-run, then a review-mode run
 
 ### Phase E: answers, models, auto mode
@@ -120,8 +120,12 @@ after Phase C".
   logs in by hand; then PIE tries one search page in that same visible browser. If Naukri
   still blocks it, Naukri stays a manual-apply platform (PIE finds and scores jobs from other
   sources; the user applies on Naukri).
-- LinkedIn's User Agreement does not allow automated applying, and LinkedIn restricts
-  accounts that do it. Phase D needs the user's explicit go-ahead knowing that risk.
+- 2026-10-04: the user gave the go-ahead to automate LinkedIn Easy Apply, knowing LinkedIn's
+  User Agreement does not allow it and the account may be restricted. Safeguards: limit 5/day
+  (lowest), visible browser, the user's own manual login, stop at any security check, no
+  disguising the browser. Next: the user runs
+  `python -m backend.scripts.login linkedin --test-search` (and the same for naukri); then PIE
+  reads the real, logged-in pages to verify selectors and build search + apply.
 
 ## Environment notes
 

@@ -215,7 +215,6 @@ def build_home(
     from integrations.platforms.base import load_status
 
     logins = load_status(data_dir or REPO_ROOT / "data")
-    later = "LinkedIn comes in Phase D."
     platforms = [
         PlatformMode(
             platform="naukri",
@@ -225,7 +224,14 @@ def build_home(
             login=(logins.get("naukri") or {}).get("state", "never"),
             login_command="python -m backend.scripts.login naukri --test-search",
         ),
-        PlatformMode(platform="linkedin", mode="dry-run", built=False, note=later, login=None),
+        PlatformMode(
+            platform="linkedin",
+            mode="dry-run",
+            built=False,
+            note="Login check works; search and Easy Apply come after the live login test.",
+            login=(logins.get("linkedin") or {}).get("state", "never"),
+            login_command="python -m backend.scripts.login linkedin --test-search",
+        ),
         PlatformMode(
             platform="company_site",
             mode="dry-run",
