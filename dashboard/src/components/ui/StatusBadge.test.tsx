@@ -21,7 +21,7 @@ describe("StatusBadge", () => {
 describe("navigation", () => {
   it("contains every section from the spec, in order", () => {
     expect(NAV_ITEMS.map((n) => n.label)).toEqual([
-      "Dashboard", "Jobs", "Shortlisted", "Applications", "Needs my input", "Manual apply", "Failed", "Emails",
+      "Dashboard", "Jobs", "Shortlisted", "Applications", "Runs", "Review queue", "Needs my input", "Manual apply", "Failed", "Emails",
       "Resumes", "Agent", "Settings", "Logs",
     ]);
   });

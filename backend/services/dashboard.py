@@ -164,7 +164,7 @@ class QuickLinks(BaseModel):
     needs_input: int
     failed: int
     manual: int | None
-    waiting_for_review: int | None  # None: available after Phase C
+    waiting_for_review: int | None
 
 
 class HomeStatus(BaseModel):
@@ -174,6 +174,18 @@ class HomeStatus(BaseModel):
     today: StatusCounts
     all_time: StatusCounts
     quick_links: QuickLinks
+
+
+def _waiting_for_review(db: Session) -> int:
+    from database.enums import BrowserExecutionMode, BrowserSessionState
+    from database.models import BrowserSession
+
+    return _count(
+        db,
+        BrowserSession,
+        BrowserSession.mode == BrowserExecutionMode.LIVE,
+        BrowserSession.state == BrowserSessionState.READY_FOR_SUBMISSION,
+    )
 
 
 def _status_counts(db: Session, *where: object) -> StatusCounts:
@@ -224,6 +236,6 @@ def build_home(db: Session, settings: Settings, now: datetime | None = None) -> 
             needs_input=all_time.needs_input,
             failed=all_time.failed,
             manual=all_time.manual,
-            waiting_for_review=None,
+            waiting_for_review=_waiting_for_review(db),
         ),
     )

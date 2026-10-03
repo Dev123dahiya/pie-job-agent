@@ -142,6 +142,7 @@ class RunType(StrEnum):
     ANALYSIS = "analysis"
     AGENT = "agent"  # autonomous Claude agent run (tool-using loop)
     DAILY = "daily"  # daily discovery + analysis; parent of its discovery/analysis runs
+    PIPELINE = "pipeline"  # started from the Runs page: discover / analyze / tailor / apply
     MOCK = "mock"
 
 
@@ -168,6 +169,9 @@ class JobLogAction(StrEnum):
     DAILY_STEP_COMPLETED = "DAILY_STEP_COMPLETED"
     DAILY_STEP_FAILED = "DAILY_STEP_FAILED"
     DAILY_RUN_COMPLETED = "DAILY_RUN_COMPLETED"
+    PIPELINE_STARTED = "PIPELINE_STARTED"
+    PIPELINE_STEP = "PIPELINE_STEP"
+    PIPELINE_COMPLETED = "PIPELINE_COMPLETED"
     # Lead -> trusted ATS resolution (Phase 5.7).
     LEADS_REGISTERED = "LEADS_REGISTERED"
     BOARD_RESOLVED = "BOARD_RESOLVED"

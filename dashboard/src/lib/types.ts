@@ -513,7 +513,7 @@ export interface HomeStatus {
     needs_input: number;
     failed: number;
     manual: number;
-    waiting_for_review: number | null;
+    waiting_for_review: number;
   };
 }
 

@@ -1118,7 +1118,7 @@ def api(client: Any, exec_settings: Settings, exec_profile: UserProfile, browser
     from backend.api import deps
     from backend.core.config import get_settings
 
-    holder = {"settings": exec_settings}
+    holder = {"settings": exec_settings, "profile": exec_profile, "browser": browser}
     app = client.app
     app.dependency_overrides[get_settings] = lambda: holder["settings"]
     app.dependency_overrides[deps.profile_dep] = lambda: exec_profile
@@ -2630,3 +2630,176 @@ def test_failed_page_api_screenshot_and_retry_selected(
     assert not bad["ok"] and "No job" in bad["error"]
     assert client.get("/api/jobs/failed").json()["total"] == 0
     assert client.post("/api/jobs/retry-batch", json={"job_ids": []}).status_code == 422
+
+
+# --- C9: Runs page (pipeline runs) -----------------------------------------------------------
+
+
+def _start(client: Any, **body: Any) -> Any:
+    return client.post("/api/runs", json=body)
+
+
+def test_runs_dry_run_apply_never_submits(
+    client: Any, api: Any, db: Session, ready_job: uuid.UUID, site: ApplySite
+) -> None:
+    res = _start(client, steps=["apply"])
+    assert res.status_code == 202, res.text
+    run = client.get(f"/api/runs/{res.json()['run_id']}").json()
+    assert run["status"] == "COMPLETED" and run["mode"] == "dry-run"
+    assert run["report"]["counts"] == {"dry_run_complete": 1}
+    assert site.submissions == [] and job_state(db, ready_job) is S.READY_TO_APPLY
+    assert [r["id"] for r in client.get("/api/runs").json()["items"]] == [run["id"]]
+    # Stopping a finished run changes nothing; unknown runs are 404.
+    assert client.post(f"/api/runs/{run['id']}/stop").json()["status"] == "COMPLETED"
+    assert client.post(f"/api/runs/{uuid.uuid4()}/stop").status_code == 404
+
+
+def test_runs_refuse_what_is_not_allowed(client: Any, api: Any, ready_job: uuid.UUID) -> None:
+    assert _start(client, steps=[]).status_code == 422
+    assert _start(client, steps=["fly"]).status_code == 422
+    assert _start(client, steps=["apply"], platforms=["naukri"]).status_code == 422
+    assert _start(client, steps=["apply"], mode="auto").status_code == 422  # not built
+    assert _start(client, steps=["analyze"], analysis_limit=51).status_code == 422
+    # Review mode is live: refused while DEVELOPMENT_MODE / the live switch say no.
+    res = _start(client, steps=["apply"], mode="review")
+    assert res.status_code == 422 and "DEVELOPMENT_MODE" in res.json()["detail"]
+    opts = client.get("/api/runs/options").json()
+    assert opts["default_mode"] == "dry-run" and opts["live_possible"] is False
+    naukri = next(p for p in opts["platforms"] if p["platform"] == "naukri")
+    assert naukri["apply_supported"] is False
+
+
+def test_runs_review_mode_needs_the_exact_confirmation_and_never_submits(
+    client: Any,
+    api: Any,
+    db: Session,
+    live_settings: Settings,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+) -> None:
+    api["settings"] = live_settings
+    opts = client.get("/api/runs/options").json()
+    assert opts["live_possible"] is True
+    company = next(p for p in opts["platforms"] if p["platform"] == "company_site")
+    phrase = company["review_confirmation"]["phrase"]
+    assert phrase == "LIVE on company_site: up to 10 today"
+    assert _start(client, steps=["apply"], mode="review").status_code == 422
+    assert _start(client, steps=["apply"], mode="review", confirmation="yes").status_code == 422
+    res = _start(client, steps=["apply"], mode="review", confirmation=phrase)
+    assert res.status_code == 202, res.text
+    run = client.get(f"/api/runs/{res.json()['run_id']}").json()
+    assert run["report"]["counts"] == {"waiting_for_review": 1}
+    assert job_state(db, ready_job) is S.READY_FOR_SUBMISSION  # waits for the user's yes/no
+    assert site.submissions == []
+    session = db.scalars(select(BrowserSession).where(BrowserSession.job_id == ready_job)).one()
+    assert session.mode is BrowserExecutionMode.LIVE and session.user_confirmed_at is None
+    svc.close_session(
+        svc.ExecContext(
+            db, live_settings, api["profile"], api["browser"], BrowserExecutionMode.LIVE
+        ),
+        session.id,
+    )
+
+
+def test_runs_tailor_step_makes_resume_and_draft(
+    client: Any,
+    api: Any,
+    db: Session,
+    shortlisted_job_id: Any,
+) -> None:
+    from backend.api.routes.runs import claude_factory_dep
+
+    client.app.dependency_overrides[claude_factory_dep] = lambda: lambda: FakeClaude(good_resume())
+    res = _start(client, steps=["tailor"], tailor_limit=1)
+    run = client.get(f"/api/runs/{res.json()['run_id']}").json()
+    assert run["status"] == "COMPLETED", run
+    assert run["report"]["counts"].get("tailored") == 1
+    assert job_state(db, shortlisted_job_id) in (S.READY_TO_APPLY, S.BLOCKED_NEEDS_USER)
+
+
+def test_runs_discover_step_survives_a_failing_source(client: Any, api: Any) -> None:
+    res = _start(client, steps=["discover"])
+    run = client.get(f"/api/runs/{res.json()['run_id']}").json()
+    assert run["status"] == "COMPLETED"  # a source that can't be built is a reported problem
+
+
+# --- C6: Review queue -------------------------------------------------------------------------
+
+
+def _review_run(client: Any, api: Any, live_settings: Settings) -> list[dict[str, Any]]:
+    api["settings"] = live_settings
+    phrase = next(
+        p for p in client.get("/api/runs/options").json()["platforms"]
+        if p["platform"] == "company_site"
+    )["review_confirmation"]["phrase"]  # fmt: skip
+    assert _start(client, steps=["apply"], mode="review", confirmation=phrase).status_code == 202
+    return list(client.get("/api/review").json()["items"])
+
+
+def test_review_queue_shows_what_will_be_sent_and_approve_submits_once(
+    client: Any,
+    api: Any,
+    db: Session,
+    live_settings: Settings,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+) -> None:
+    [item] = _review_run(client, api, live_settings)
+    assert item["job_id"] == str(ready_job) and item["platform"] == "company_site"
+    assert item["resume"] and item["uploaded_resume"].endswith(".pdf")
+    keys = {a["key"] for a in item["answers"]}
+    assert {"email", "notice_period"} <= keys
+    assert all(set(a) == {"label", "key", "source", "ai_suggested"} for a in item["answers"])
+    assert not any(a["ai_suggested"] for a in item["answers"])
+    assert client.get("/api/dashboard/home").json()["quick_links"]["waiting_for_review"] == 1
+    url = f"/api/review/{item['session_id']}/approve"
+
+    wrong = client.post(url, json={"statement": "I agree to whatever"})
+    assert wrong.status_code == 422 and site.submissions == []
+    ok = client.post(url, json={"statement": item["confirmation_statement"]})
+    assert ok.status_code == 200 and ok.json()["submitted"] is True
+    assert len(site.submissions) == 1 and job_state(db, ready_job) is S.SUBMITTED
+    again = client.post(url, json={"statement": item["confirmation_statement"]})
+    assert again.status_code == 409 and len(site.submissions) == 1
+    assert client.get("/api/review").json()["total"] == 0
+
+
+def test_review_reject_submits_nothing_and_withdraws(
+    client: Any,
+    api: Any,
+    db: Session,
+    live_settings: Settings,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+) -> None:
+    [item] = _review_run(client, api, live_settings)
+    res = client.post(f"/api/review/{item['session_id']}/reject")
+    assert res.status_code == 200 and res.json()["status"] == "WITHDRAWN"
+    assert site.submissions == [] and job_state(db, ready_job) is S.WITHDRAWN
+    assert client.post(f"/api/review/{item['session_id']}/reject").status_code == 409
+    assert client.post(f"/api/review/{uuid.uuid4()}/reject").status_code == 404
+
+
+def test_review_batch_approval_keeps_every_check(
+    client: Any,
+    api: Any,
+    db: Session,
+    live_settings: Settings,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+    tmp_path: Path,
+) -> None:
+    [item] = _review_run(client, api, live_settings)
+    api["settings"] = with_limits(live_settings, tmp_path, company_site=0)  # limit used up
+    res = client.post(
+        "/api/review/approve-batch",
+        json={"items": [
+            {"session_id": item["session_id"], "statement": item["confirmation_statement"]},
+            {"session_id": str(uuid.uuid4()), "statement": "x" * 20},
+        ]},
+    )  # fmt: skip
+    body = res.json()
+    assert res.status_code == 200 and body["submitted"] == 0
+    first, second = body["results"]
+    assert first["code"] == "DAILY_LIMIT_REACHED" and site.submissions == []
+    assert second["submitted"] is False

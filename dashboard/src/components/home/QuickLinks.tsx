@@ -7,7 +7,7 @@ export function QuickLinks({ links }: { links: HomeStatus["quick_links"] }) {
     { label: "Needs my input", count: links.needs_input, href: "/needs-input" },
     { label: "Manual apply", count: links.manual, href: "/manual" },
     { label: "Failed", count: links.failed, href: "/failed" },
-    { label: "Waiting for review", count: links.waiting_for_review, href: "/jobs" },
+    { label: "Waiting for review", count: links.waiting_for_review, href: "/review" },
   ];
   return (
     <nav aria-label="Quick links" className="grid grid-cols-2 gap-3 md:grid-cols-4">

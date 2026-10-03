@@ -2,6 +2,7 @@ import { type LogPage, logsQueryString } from "./logs";
 import type { ManualJob } from "@/components/manual/ManualList";
 import type { FailedList } from "./failed";
 import type { NeedsInput } from "./needsInput";
+import type { PipelineRunDetail, ReviewItem, RunOptions, RunSummary } from "./runs";
 import type {
   AgentStatus,
   DailySchedule,
@@ -200,4 +201,22 @@ export function getFailedJobs(fetchImpl?: typeof fetch) {
 /** Jobs the user applies to themselves. */
 export function getManualJobs(fetchImpl?: typeof fetch) {
   return fetched<{ items: ManualJob[]; total: number }>("/api/jobs/manual", fetchImpl);
+}
+
+/** What a run can do now (steps, platforms, modes, live confirmations). */
+export function getRunOptions(fetchImpl?: typeof fetch) {
+  return fetched<RunOptions>("/api/runs/options", fetchImpl);
+}
+
+export function getRuns(fetchImpl?: typeof fetch) {
+  return fetched<{ items: RunSummary[] }>("/api/runs", fetchImpl);
+}
+
+export function getPipelineRun(id: string, fetchImpl?: typeof fetch) {
+  return fetched<PipelineRunDetail>(`/api/runs/${encodeURIComponent(id)}`, fetchImpl);
+}
+
+/** LIVE applications prepared and waiting for the user's yes/no. */
+export function getReviewQueue(fetchImpl?: typeof fetch) {
+  return fetched<{ items: ReviewItem[]; total: number }>("/api/review", fetchImpl);
 }

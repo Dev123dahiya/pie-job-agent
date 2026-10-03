@@ -60,11 +60,11 @@ after Phase C".
 - [ ] C4 Naukri direct apply (dry-run first); redirects go to the company-site flow or the
       manual-apply list; step cap on multi-step forms
 - [x] C5 Needs-my-input: save unanswered questions, answer once, reuse next time (page done)
-- [ ] C6 Review mode: wait for yes/no before submit
+- [x] C6 Review mode: wait for yes/no before submit (Runs page review mode + Review queue)
 - [ ] C7 Stop on daily limit or a platform quota/warning message
 - [x] C8 Reliability: restart the browser after a freeze; clean up sessions of a dead run
 - [ ] C9 Pages: Review queue, Needs my input, Manual apply, Failed (retry), Runs (start/stop,
-      live progress, history), Settings (validated, backed up, diff shown)
+      live progress, history) done; Settings (validated, backed up, diff shown) to do
 - [ ] C10 End-of-run summary. Needs you: a dry-run, then a review-mode run on Naukri
 
 ### Phase D: LinkedIn Easy Apply
