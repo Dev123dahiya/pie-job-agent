@@ -739,7 +739,7 @@ def open_application(ctx: ExecContext, job_id: uuid.UUID) -> dict[str, Any]:
             "(a draft, a validated tailored resume and every standard answer).",
         )
     readiness = evaluate_readiness(ctx.db, ctx.settings, ctx.profile, job, app)
-    blockers = user_blockers(ctx.settings, ctx.profile)
+    blockers = user_blockers(ctx.settings, ctx.profile, ctx.db)
     version = _validated_resume(ctx, app)
     if blockers or version is None or (not resuming and not readiness.ready):
         raise ExecutionError(

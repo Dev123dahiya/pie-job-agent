@@ -2490,3 +2490,118 @@ def test_sessions_of_a_dead_run_are_failed_but_paused_ones_are_kept(
         failed[0].error or ""
     )
     assert active_run(db) is None  # running it again changes nothing
+
+
+# --- C5: Needs my input ---------------------------------------------------------------------
+
+
+def test_needs_input_lists_form_questions_and_answers_unblock_the_job(
+    client: Any,
+    api: Any,
+    db: Session,
+    ready_job: uuid.UUID,
+    site: ApplySite,
+    entered: dict[str, str],
+) -> None:
+    use_case(db, ready_job, site, "unknown")
+    app_id = _app_id(db, ready_job)
+    assert client.post(f"/api/applications/{app_id}/dry-run").json()["blocked_needs_user"]
+
+    body = client.get("/api/needs-input").json()
+    assert [j["job_id"] for j in body["jobs"]] == [str(ready_job)]
+    job = body["jobs"][0]
+    assert job["in_browser"] is True and job["application_id"] == app_id
+    [q] = [q for q in job["questions"] if q["answerable"]]
+    assert q["kind"] == "form" and q["question_key"].startswith("q_")
+    assert body["saved_answers"] == []
+
+    res = client.post(
+        "/api/needs-input/answers",
+        json={
+            "answers": [
+                {"question_key": q["question_key"], "question": q["question"], "answer": "No"}
+            ]
+        },
+    )
+    assert res.status_code == 200 and res.json() == {"saved": 1, "requeued": [str(ready_job)]}
+    body = client.get("/api/needs-input").json()
+    saved = body["saved_answers"]
+    assert [(s["question_key"], s["answer"]) for s in saved] == [(q["question_key"], "No")]
+    assert body["jobs"][0]["questions"] == []  # answered: nothing left to ask
+    # The event records which question was answered, never the answer.
+    event = db.scalars(
+        select(ApplicationEvent)
+        .where(ApplicationEvent.event_type == "user_answered_questions")
+        .order_by(ApplicationEvent.occurred_at.desc())
+    ).first()
+    assert event is not None and event.evidence == {"question_keys": [q["question_key"]]}
+
+    # Resuming the dry run uses the saved answer.
+    again = client.post(f"/api/applications/{app_id}/dry-run").json()
+    assert again["dry_run_complete"] is True and site.submissions == []
+    assert "No" in entered.values()
+
+    # Answering again replaces (one saved answer per question); edit and delete work.
+    client.post(
+        "/api/needs-input/answers",
+        json={"answers": [{"question_key": q["question_key"], "answer": "Yes"}]},
+    )
+    [row] = client.get("/api/needs-input").json()["saved_answers"]
+    assert row["answer"] == "Yes"
+    edited = client.put(f"/api/needs-input/saved-answers/{row['id']}", json={"answer": "No"})
+    assert edited.status_code == 200 and edited.json()["answer"] == "No"
+    assert client.delete(f"/api/needs-input/saved-answers/{row['id']}").status_code == 204
+    assert client.get("/api/needs-input").json()["saved_answers"] == []
+    assert client.delete(f"/api/needs-input/saved-answers/{row['id']}").status_code == 404
+
+
+def test_needs_input_standard_answers_and_refusals(
+    client: Any,
+    api: Any,
+    db: Session,
+    exec_profile: UserProfile,
+    ready_job: uuid.UUID,
+) -> None:
+    from backend.services.readiness import apply_readiness, evaluate_readiness
+
+    # The profile has no current CTC: the job waits for it before any browser opens.
+    answers = dict(exec_profile.verified_profile.verified_answers)
+    answers.pop("current_ctc", None)
+    profile = exec_profile.model_copy(
+        update={
+            "verified_profile": exec_profile.verified_profile.model_copy(
+                update={"verified_answers": answers}
+            )
+        }
+    )
+    from backend.api import deps
+
+    client.app.dependency_overrides[deps.profile_dep] = lambda: profile
+    job = db.get(Job, ready_job)
+    app = db.scalar(select(Application).where(Application.job_id == ready_job))
+    assert job is not None and app is not None
+    apply_readiness(db, job, app, evaluate_readiness(db, api["settings"], profile, job, app))
+    db.commit()
+    assert job_state(db, ready_job) is S.BLOCKED_NEEDS_USER
+
+    [paused] = client.get("/api/needs-input").json()["jobs"]
+    assert paused["in_browser"] is False
+    assert [q["question_key"] for q in paused["questions"]] == ["current_ctc"]
+
+    res = client.post(
+        "/api/needs-input/answers",
+        json={"answers": [{"question_key": "current_ctc", "answer": "0 (fresher)"}]},
+    )
+    assert res.json() == {"saved": 1, "requeued": [str(ready_job)]}
+    assert job_state(db, ready_job) is S.READY_TO_APPLY  # back in the queue
+    assert client.get("/api/needs-input").json()["jobs"] == []
+
+    def post(key: str, answer: str = "x") -> int:
+        payload = {"answers": [{"question_key": key, "answer": answer}]}
+        return client.post("/api/needs-input/answers", json=payload).status_code
+
+    assert post("otp") == 422  # PIE never stores one-time codes or passwords
+    assert post("challenge_captcha") == 422
+    assert post("Bad Key!") == 422
+    assert post("notice_period", "") == 422
+    assert post("notice_period", "x" * 2001) == 422

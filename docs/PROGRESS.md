@@ -59,7 +59,7 @@ after Phase C".
       skip out-of-range experience before scoring; cross-site duplicate check
 - [ ] C4 Naukri direct apply (dry-run first); redirects go to the company-site flow or the
       manual-apply list; step cap on multi-step forms
-- [ ] C5 Needs-my-input: save unanswered questions, answer once, reuse next time
+- [x] C5 Needs-my-input: save unanswered questions, answer once, reuse next time (page done)
 - [ ] C6 Review mode: wait for yes/no before submit
 - [ ] C7 Stop on daily limit or a platform quota/warning message
 - [x] C8 Reliability: restart the browser after a freeze; clean up sessions of a dead run

@@ -23,6 +23,7 @@ async function forward(request: Request, ctx: { params: Promise<{ path: string[]
   }
   try {
     const res = await fetch(`${apiBaseUrl()}/${joined}${search}`, init);
+    if (res.status === 204) return new Response(null, { status: 204 });
     // Pass bytes through untouched (resume PDFs are binary).
     const headers: Record<string, string> = {
       "content-type": res.headers.get("content-type") ?? "application/json",
@@ -37,3 +38,5 @@ async function forward(request: Request, ctx: { params: Promise<{ path: string[]
 
 export const GET = forward;
 export const POST = forward;
+export const PUT = forward; // saved answers: edit
+export const DELETE = forward; // saved answers: delete

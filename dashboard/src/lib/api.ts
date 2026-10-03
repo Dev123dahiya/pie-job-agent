@@ -1,4 +1,5 @@
 import { type LogPage, logsQueryString } from "./logs";
+import type { NeedsInput } from "./needsInput";
 import type {
   AgentStatus,
   DailySchedule,
@@ -182,4 +183,9 @@ export function getDailyLimits(fetchImpl?: typeof fetch) {
 /** The backend log, filtered and redacted by the backend (newest first). */
 export function getLogs(params: Record<string, string | string[] | undefined>, fetchImpl?: typeof fetch) {
   return fetched<LogPage>(`/api/logs${logsQueryString(params)}`, fetchImpl, 15_000); // reads the whole log
+}
+
+/** Jobs waiting for the user (with their questions) and the user's saved answers. */
+export function getNeedsInput(fetchImpl?: typeof fetch) {
+  return fetched<NeedsInput>("/api/needs-input", fetchImpl);
 }
