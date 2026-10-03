@@ -130,6 +130,17 @@ export type ResumeVersionBrief = {
   role: string | null;
   created_at: string;
   changes_summary: string | null;
+  used_by: ResumeUse[];
+  locked: boolean;
+};
+
+export type ResumeUse = {
+  application_id: string;
+  job_id: string;
+  title: string;
+  company: string | null;
+  user_status: UserStatusKey;
+  locked: boolean;
 };
 
 export type ChangeDetails = {

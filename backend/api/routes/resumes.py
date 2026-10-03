@@ -1,6 +1,8 @@
 """Resume versions: master status, tailored version list/detail and artifact download.
 
-Read-only. Artifacts are served only from resumes/tailored/ (never the master resume file).
+Read-only. Tailored artifacts are served only from resumes/tailored/. The master resume file
+is served by one endpoint for preview/download (REQUIREMENTS 19.2.8): exactly the file PIE
+located, never a path from the request. The API listens on 127.0.0.1 only.
 """
 
 import uuid
@@ -12,10 +14,21 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.api.schemas import MasterResumeStatus, ResumeVersionBrief, ResumeVersionDetail
+from backend.api.schemas import (
+    MasterResumeStatus,
+    ResumeUse,
+    ResumeVersionBrief,
+    ResumeVersionDetail,
+)
 from backend.core.config import Settings, get_settings
-from backend.services.resumes import ResumeUnavailableError, read_master_resume
-from database.models import Job, ResumeVersion
+from backend.services.resumes import (
+    ResumeUnavailableError,
+    locate_master_resume,
+    read_master_resume,
+)
+from backend.services.statuses import user_status
+from backend.services.tailoring import resume_lock_reason
+from database.models import Application, Job, ResumeVersion
 from database.session import get_db
 
 router = APIRouter(prefix="/resumes", tags=["resumes"])
@@ -33,12 +46,35 @@ def artifact_paths(v: ResumeVersion) -> dict[str, Path]:
     return {k: p for k, p in paths.items() if p.is_file()}
 
 
+def uses(db: Session, v: ResumeVersion) -> list[ResumeUse]:
+    """Applications linked to this version, each with whether it locks the resume."""
+    apps = db.scalars(select(Application).where(Application.resume_version_id == v.id)).all()
+    return [
+        ResumeUse(
+            application_id=a.id,
+            job_id=a.job_id,
+            title=a.job.title,
+            company=a.job.company.name if a.job.company else None,
+            user_status=user_status(a.job.pipeline_state),
+            locked=resume_lock_reason(db, a.job, a) is not None,
+        )
+        for a in apps
+    ]
+
+
+def brief(db: Session, v: ResumeVersion) -> ResumeVersionBrief:
+    used = uses(db, v)
+    return ResumeVersionBrief.of(v).model_copy(
+        update={"used_by": used, "locked": any(u.locked for u in used)}
+    )
+
+
 def version_detail(db: Session, v: ResumeVersion) -> ResumeVersionDetail:
     job = db.get(Job, v.job_id) if v.job_id else None
     paths = artifact_paths(v)
     markdown = paths["markdown"].read_text(encoding="utf-8") if "markdown" in paths else None
     return ResumeVersionDetail(
-        **ResumeVersionBrief.of(v).model_dump(),
+        **brief(db, v).model_dump(),
         job_title=job.title if job else None,
         content=v.content,
         change_details=v.change_details,
@@ -77,7 +113,7 @@ def list_versions(
     stmt = select(ResumeVersion).order_by(ResumeVersion.created_at.desc()).limit(limit)
     if job_id is not None:
         stmt = stmt.where(ResumeVersion.job_id == job_id)
-    return [ResumeVersionBrief.of(v) for v in db.scalars(stmt).all()]
+    return [brief(db, v) for v in db.scalars(stmt).all()]
 
 
 @router.get("/versions/{version_id}", response_model=ResumeVersionDetail)
@@ -106,3 +142,20 @@ def download_artifact(
         raise HTTPException(404, "Artifact not available")
     media = "application/pdf" if format == "pdf" else "text/markdown; charset=utf-8"
     return FileResponse(path, media_type=media, filename=path.name)
+
+
+@router.get("/master/file")
+def master_file(settings: Annotated[Settings, Depends(get_settings)]) -> FileResponse:
+    """The master resume itself, for preview/download on this computer (read only)."""
+    found = locate_master_resume(settings)
+    if found is None:
+        raise HTTPException(404, "No master resume found")
+    path = found[0]
+    media = {
+        ".pdf": "application/pdf",
+        ".md": "text/markdown; charset=utf-8",
+        ".txt": "text/plain; charset=utf-8",
+    }.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(
+        path, media_type=media, filename=path.name, content_disposition_type="inline"
+    )

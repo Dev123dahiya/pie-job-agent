@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { getResumeVersion } from "@/lib/api";
 import { humanize, relativeTime } from "@/lib/format";
+import { LockedBadge, ResumeUses } from "@/components/resumes/ResumeUses";
 import { artifactUrl, describeChanges } from "@/lib/resume";
 
 export const metadata: Metadata = { title: "Resume version" };
@@ -62,6 +63,7 @@ export default async function ResumeVersionPage(props: PageProps<"/resumes/[id]"
               status={v.validation_status === "VALIDATED" ? "ok" : "unknown"}
               label={v.validation_status === "VALIDATED" ? "Validated" : "Not validated"}
             />
+            {v.locked && <LockedBadge />}
             <span>{humanize(v.tailoring_strategy ?? "balanced")}</span>
             <span suppressHydrationWarning>· created {relativeTime(v.created_at)}</span>
             {v.job_id && (
@@ -74,6 +76,10 @@ export default async function ResumeVersionPage(props: PageProps<"/resumes/[id]"
             Derived from the master resume (SHA-256 {v.source_sha256?.slice(0, 12) ?? "—"}…) · {v.model ?? "unknown model"} ·{" "}
             {v.prompt_version ?? "—"}. Internal only. Nothing is submitted.
           </p>
+          <div className="mt-3">
+            <p className="mb-1 text-xs font-medium text-ink-2">Used by</p>
+            <ResumeUses uses={v.used_by} />
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           {v.artifacts.map((format) => (

@@ -161,6 +161,15 @@ class ApplicationBrief(BaseModel):
     applied_at: datetime | None
 
 
+class ResumeUse(BaseModel):
+    application_id: uuid.UUID
+    job_id: uuid.UUID
+    title: str
+    company: str | None
+    user_status: str
+    locked: bool
+
+
 class ResumeVersionBrief(BaseModel):
     id: uuid.UUID
     version_number: int
@@ -173,6 +182,10 @@ class ResumeVersionBrief(BaseModel):
     role: str | None
     created_at: datetime
     changes_summary: str | None
+    # Filled in by the resumes routes: the applications using this version, and whether any
+    # of them locks it (in progress or submitted, REQUIREMENTS 7).
+    used_by: list["ResumeUse"] = []
+    locked: bool = False
 
     @classmethod
     def of(cls, v: ResumeVersion) -> "ResumeVersionBrief":

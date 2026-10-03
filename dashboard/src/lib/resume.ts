@@ -26,6 +26,9 @@ export function describeChanges(c: ChangeDetails): string[] {
   return lines.length ? lines : ["No structural changes"];
 }
 
+/** The master resume file itself (inline: the browser previews it; save to download). */
+export const MASTER_FILE_URL = "/backend/api/resumes/master/file";
+
 /** Download link for a stored artifact, served through the dashboard's backend proxy. */
 export function artifactUrl(versionId: string, format: "pdf" | "markdown"): string {
   return `/backend/api/resumes/versions/${encodeURIComponent(versionId)}/artifact?format=${format}`;
