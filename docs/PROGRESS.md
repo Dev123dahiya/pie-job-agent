@@ -28,7 +28,7 @@ of every step. No personal data here.
 | B6 | Answers tool shows keys only, not values; key names match; whole-word "visa" | Done (approved) |
 | B7 | Daily limits enforced in the backend (`config/automation.yaml`: total + per platform) | Done |
 | B8 | `requirements.txt` (+ `requirements-dev.txt`, exact tested versions) | Done |
-| B10 | Check `config/user_profile.yaml` is complete; match `config/job_sources.yaml` | Needs you: fill the profile |
+| B10 | Profile check; `current_ctc` + `total_experience` answers; search config matches the profile | Code done. Needs you: add `current_ctc` to `verified_answers` |
 
 ## To-do list (remaining work)
 
@@ -94,6 +94,10 @@ of every step. No personal data here.
   Counted: live submission attempts today (any outcome except "user says not sent"); dry runs
   never count. Checked before a live session opens and again right before the submit click.
   `daily_application_limit` in the profile is no longer used.
+- B10: standard answers are work_authorization, notice_period, current_ctc, expected_salary,
+  willing_to_relocate, total_experience (from `total_experience_years`, only if set). A job
+  can't become ready to apply until all are present. Skill-specific experience questions
+  ("years with Python") are never answered with total experience.
 - B6 includes the agent answers tool fix plus a test proving no answer values appear in the
   agent's action log.
 - Phase C: restart the browser after a freeze.

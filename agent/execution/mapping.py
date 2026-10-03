@@ -181,8 +181,16 @@ def classify(field: dict[str, Any], job_location: str | None) -> tuple[str | Non
         return "willing_to_relocate", "willingness to relocate"
     if re.search(r"notice period", text):
         return "notice_period", "notice period"
-    if re.search(r"current (salary|ctc|compensation)", text):
-        return None, "current salary (not verified)"
+    if re.search(r"current (annual )?(salary|ctc|compensation)", text):
+        return "current_ctc", "current CTC"
+    # Overall experience only: "years of experience with Python" is a skill question.
+    if re.search(
+        r"\b(total|overall) (work |professional )?experience\b"
+        r"(?!\s+(with|on|using|as|in (?!years)))"
+        r"|^(total )?(years of )?(work )?experience( in years| \(years\))?$",
+        text,
+    ):
+        return "total_experience", "total experience"
     if re.search(
         r"expected (salary|ctc|compensation)|salary expectation|desired (salary|pay)"
         r"|compensation expectation|\bsalary\b|\bctc\b",

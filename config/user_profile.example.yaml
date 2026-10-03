@@ -41,7 +41,9 @@ verified_profile:
 
   # Answers to common application questions. Only put answers here that are true.
   verified_answers:
-    work_authorization_india: "Yes"
+    work_authorization: "Yes - authorized to work in India"
+    # current_ctc: "0 (fresher)"          # current annual CTC, as you'd state it on a form
+    # expected_salary: "6 LPA"
     # notice_period: "Immediate"
     # willing_to_relocate: "Yes, within Delhi NCR"
 

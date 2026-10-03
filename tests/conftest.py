@@ -366,6 +366,7 @@ def tailor_profile() -> UserProfile:
                 "verified_answers": {
                     "work_authorization": "Yes",
                     "notice_period": "Immediate",
+                    "current_ctc": "0 (fresher)",
                     "expected_salary": "10 LPA",
                     "willing_to_relocate": "Yes",
                 },

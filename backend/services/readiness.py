@@ -27,7 +27,9 @@ ELIGIBLE = {S.SHORTLISTED, S.READY_TO_APPLY, S.BLOCKED_NEEDS_USER}
 STANDARD_QUESTIONS: dict[str, str] = {
     "work_authorization": "Are you legally authorized to work in India (and where needed, abroad)?",
     "notice_period": "What is your notice period?",
+    "current_ctc": "What is your current CTC (annual)?",
     "expected_salary": "What is your expected salary?",
+    "total_experience": "How many years of total work experience do you have?",
     "willing_to_relocate": "Are you willing to relocate?",
 }
 
@@ -58,7 +60,11 @@ def user_blockers(settings: Settings, profile: UserProfile) -> list[str]:
             "Master resume not available to PIE: put it in resumes/master/ or set "
             "MASTER_RESUME_PATH."
         )
-    known = set(profile.verified_profile.verified_answers)
+    from agent.execution.answers import AnswerBank  # same key names as the form filler
+
+    known = set(profile.verified_profile.verified_answers) | set(
+        AnswerBank(profile).verified_keys()
+    )
     blockers += [
         f"Missing verified answer '{k}': {q}"
         for k, q in STANDARD_QUESTIONS.items()

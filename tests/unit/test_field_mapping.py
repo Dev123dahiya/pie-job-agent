@@ -288,3 +288,27 @@ def test_resume_upload_needs_a_validated_pdf(bank: AnswerBank) -> None:
 )
 def test_keywords_match_whole_words_only(label: str, expected: str | None) -> None:
     assert classify(field(label), "Gurugram, India")[0] == expected
+
+
+# --- B10: current CTC and total experience have their own answers --------------------------
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("Current CTC", "current_ctc"),
+        ("Current annual salary", "current_ctc"),
+        ("Expected CTC", "expected_salary"),
+        ("Total experience", "total_experience"),
+        ("Total Experience (in years)", "total_experience"),
+        ("Overall work experience", "total_experience"),
+        ("Years of experience", "total_experience"),
+        ("Experience", "total_experience"),
+        # Skill-specific experience is not total experience.
+        ("Years of experience with Python", None),
+        ("Total experience in Java", None),
+        ("Total experience as a team lead", None),
+    ],
+)
+def test_ctc_and_experience_questions(label: str, expected: str | None) -> None:
+    assert classify(field(label), "Gurugram, India")[0] == expected

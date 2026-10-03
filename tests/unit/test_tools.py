@@ -272,6 +272,7 @@ def test_draft_waits_for_tailored_resume_when_answers_complete(
     ctx.profile.verified_profile.verified_answers = {
         "work_authorization": "Yes",
         "notice_period": "Immediate",
+        "current_ctc": "0",
         "expected_salary": "10 LPA",
         "willing_to_relocate": "No",
     }
@@ -328,3 +329,18 @@ def test_status_updates_cannot_submit(ctx: ToolContext, shortlisted_job_id: Any)
         user_action_required="x",
     )
     assert illegal.error_code is ToolErrorCode.INVALID_TRANSITION
+
+
+def test_current_ctc_and_total_experience_are_standard_answers(ctx: ToolContext) -> None:
+    """B10 / REQUIREMENTS 8: both are asked of the user when missing, never guessed."""
+    from agent.execution.answers import AnswerBank
+
+    ctx.profile.verified_profile.verified_answers = {}
+    missing = {m["key"] for m in (run(ctx, "get_application_answers").data or {})["missing"]}
+    assert {"current_ctc", "work_authorization"} <= missing
+    # total_experience comes from total_experience_years, but only when the user set it.
+    assert AnswerBank(ctx.profile).get("total_experience").verified
+    unset = ctx.profile.verified_profile.model_copy()
+    unset.__pydantic_fields_set__.discard("total_experience_years")
+    bank = AnswerBank(ctx.profile.model_copy(update={"verified_profile": unset}))
+    assert not bank.get("total_experience").verified
