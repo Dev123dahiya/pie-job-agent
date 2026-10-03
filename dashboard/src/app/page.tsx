@@ -17,17 +17,32 @@ import { StatTile } from "@/components/dashboard/StatTile";
 import { SystemStatus } from "@/components/dashboard/SystemStatus";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { getAgentStatus, getDailyRun, getHealth, getLeadSummary, getOverview } from "@/lib/api";
+import { DailyLimits } from "@/components/home/DailyLimits";
+import { LiveBanner } from "@/components/home/LiveBanner";
+import { PlatformModes } from "@/components/home/PlatformModes";
+import { QuickLinks } from "@/components/home/QuickLinks";
+import { StatusCounts } from "@/components/home/StatusCounts";
+import {
+  getAgentStatus,
+  getDailyLimits,
+  getDailyRun,
+  getHealth,
+  getHome,
+  getLeadSummary,
+  getOverview,
+} from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
-  const [overview, health, agentStatus, daily, leads] = await Promise.all([
+  const [overview, health, agentStatus, daily, leads, home, limits] = await Promise.all([
     getOverview(),
     getHealth(),
     getAgentStatus(),
     getDailyRun(),
     getLeadSummary(),
+    getHome(),
+    getDailyLimits(),
   ]);
 
   if (!overview.ok) {
@@ -75,6 +90,22 @@ export default async function OverviewPage() {
         </div>
         <StatusBadge status="ok" label="Live data" />
       </div>
+
+      {home.ok && <LiveBanner livePossible={home.data.live_possible} note={home.data.live_note} />}
+      {home.ok ? (
+        <>
+          <QuickLinks links={home.data.quick_links} />
+          <div className="grid gap-6 lg:grid-cols-3">
+            <PlatformModes platforms={home.data.platforms} livePossible={home.data.live_possible} />
+            <DailyLimits limits={limits} />
+            <StatusCounts today={home.data.today} allTime={home.data.all_time} />
+          </div>
+        </>
+      ) : (
+        <p role="alert" className="rounded-xl border border-border bg-surface px-5 py-4 text-sm text-ink-2">
+          Modes, limits and status counts are unavailable: {home.error}
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {tiles.map((t) => (

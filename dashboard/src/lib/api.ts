@@ -6,6 +6,8 @@ import type {
   ApplicationSummary,
   ExecutionModeStatus,
   DashboardOverview,
+  DailyLimit,
+  HomeStatus,
   Fetched,
   Health,
   JobDetail,
@@ -150,4 +152,14 @@ export function getDailyRun(fetchImpl?: typeof fetch) {
 /** Lead -> trusted ATS resolution state: leads, boards, negative cache, budgets. */
 export function getLeadSummary(fetchImpl?: typeof fetch) {
   return fetched<LeadSummary>("/api/leads/summary", fetchImpl);
+}
+
+/** Home page: platform modes, live switch, six-status counts and quick links. */
+export function getHome(fetchImpl?: typeof fetch) {
+  return fetched<HomeStatus>("/api/dashboard/home", fetchImpl);
+}
+
+/** Today's live submissions against the daily limits (enforced in the backend). */
+export function getDailyLimits(fetchImpl?: typeof fetch) {
+  return fetched<DailyLimit[]>("/api/dashboard/limits", fetchImpl);
 }

@@ -36,7 +36,11 @@ of every step. No personal data here.
 
 ### Dashboard phase (pages for existing data, REQUIREMENTS 19.4)
 
-- [ ] D1 Home: mode per platform + live warning banner, today vs daily limits, status counts,
+Six statuses live in `backend/services/statuses.py` (one mapping for every page). D1 note:
+per-platform modes show dry-run until review/auto exist (Phase C/E); logins say "Available
+after Phase C".
+
+- [x] D1 Home: mode per platform + live warning banner, today vs daily limits, status counts,
       login status per platform, last run + 10 recent events, quick links
 - [ ] D2 Jobs: search, sorting, all filters; detail page with dimensions, duplicates, actions
 - [ ] D3 Applications: filters; detail timeline from the audit log, locked resume badge, masked

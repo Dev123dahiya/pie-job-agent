@@ -466,3 +466,37 @@ export type LeadSummary = {
   boards_needing_review: LeadBoard[];
   active_boards: LeadBoard[];
 };
+
+// --- Home page (D1) -------------------------------------------------------------------------
+
+export type UserStatusKey = "found" | "skipped" | "applied" | "needs_input" | "manual" | "failed";
+export type StatusCounts = Record<UserStatusKey, number>;
+
+export interface PlatformMode {
+  platform: "naukri" | "linkedin" | "company_site";
+  mode: "dry-run" | "review" | "auto";
+  built: boolean;
+  note: string | null;
+  login: "logged_in" | "expired" | "never" | null;
+}
+
+export interface HomeStatus {
+  live_possible: boolean;
+  live_note: string;
+  platforms: PlatformMode[];
+  today: StatusCounts;
+  all_time: StatusCounts;
+  quick_links: {
+    needs_input: number;
+    failed: number;
+    manual: number | null;
+    waiting_for_review: number | null;
+  };
+}
+
+export interface DailyLimit {
+  platform: "total" | "naukri" | "linkedin" | "company_site";
+  used: number;
+  limit: number;
+  remaining: number;
+}

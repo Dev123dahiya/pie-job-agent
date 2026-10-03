@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.core.config import Settings, get_settings
-from backend.services.dashboard import DashboardOverview, build_overview
+from backend.services.dashboard import DashboardOverview, HomeStatus, build_home, build_overview
 from backend.services.limits import LimitsConfigError, usage
 from database.session import get_db
 
@@ -41,3 +41,12 @@ def limits(
         DailyLimitOut(platform=r.platform, used=r.used, limit=r.limit, remaining=r.remaining)
         for r in rows
     ]
+
+
+@router.get("/home", response_model=HomeStatus)
+def home(
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> HomeStatus:
+    """Modes, live switch, six-status counts and quick links for the Home page (read only)."""
+    return build_home(db, settings)

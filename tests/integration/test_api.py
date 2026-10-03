@@ -67,3 +67,42 @@ def test_today_uses_user_timezone(db: Session) -> None:
     seed_mock_data(db, now=now)
     assert build_overview(db, now=now, tz="Asia/Kolkata").jobs_discovered_today == 0
     assert build_overview(db, now=now, tz="UTC").jobs_discovered_today == 10
+
+
+# --- D1: Home page --------------------------------------------------------------------------
+
+
+def test_every_pipeline_state_has_one_of_the_six_statuses() -> None:
+    from backend.services.statuses import USER_STATUSES, user_status
+    from database.enums import JobPipelineState
+
+    assert {user_status(s) for s in JobPipelineState} <= set(USER_STATUSES)
+
+
+def test_home_counts_six_statuses_and_never_claims_live(db: Session) -> None:
+    from backend.core.config import Settings
+    from backend.services.dashboard import build_home
+
+    now = datetime(2026, 9, 28, 14, 30, tzinfo=UTC)
+    seed_mock_data(db, now=now)
+    settings = Settings(development_mode=True, external_live_enabled=True)
+    home = build_home(db, settings, now=now)
+    total = sum(home.all_time.model_dump().values())
+    assert total == 10  # every mock job is counted exactly once
+    assert home.all_time.applied >= 1 and home.all_time.manual == 0
+    assert home.quick_links.needs_input == home.all_time.needs_input
+    assert home.quick_links.manual is None and home.quick_links.waiting_for_review is None
+    # DEVELOPMENT_MODE wins over the live flag: no live banner.
+    assert home.live_possible is False and "DEVELOPMENT_MODE" in home.live_note
+    assert [p.platform for p in home.platforms] == ["naukri", "linkedin", "company_site"]
+    assert all(p.mode == "dry-run" for p in home.platforms)
+    live = build_home(db, Settings(development_mode=False, external_live_enabled=True), now=now)
+    assert live.live_possible is True
+
+
+def test_home_endpoint(client: TestClient) -> None:
+    body = client.get("/api/dashboard/home").json()
+    assert set(body) >= {"live_possible", "platforms", "today", "all_time", "quick_links"}
+    assert body["all_time"] == dict.fromkeys(
+        ["found", "skipped", "applied", "needs_input", "manual", "failed"], 0
+    )
