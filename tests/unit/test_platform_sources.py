@@ -87,7 +87,7 @@ def test_naukri_plans_few_searches_with_the_experience_filter(tmp_path: Path) ->
     assert len(tasks) == 3  # capped, not 2 x 2 x pages
     src.search_jobs(tasks[0], query())
     assert browser.opened == [
-        "https://www.naukri.com/python-developer-jobs-in-gurugram?experience=1"
+        "https://www.naukri.com/python-developer-jobs-in-gurugram?experience=1&jobAge=2"
     ]
 
 
@@ -182,3 +182,25 @@ def test_details_are_capped_per_run(tmp_path: Path) -> None:
     raws = src.search_jobs(src.plan(query())[0], query())
     first, second = src.enrich(raws[0]), src.enrich(raws[1])
     assert first is not raws[0] and second is raws[1]  # only one job page opened
+
+
+def test_freshness_and_experience_filters_are_asked_of_the_platforms(tmp_path: Path) -> None:
+    empty = {"status": 200, "url": "https://x", "text": "", "items": []}
+    nk = FakeBrowser([dict(empty)])
+    src = source(NaukriSource, nk, tmp_path, experience_years=lambda: 1.0)
+    src.search_jobs(src.plan(query())[0], query())
+    assert nk.opened[0].endswith("?experience=1&jobAge=2")  # 48 h -> 2 days
+    li = FakeBrowser([dict(empty)])
+    src = source(LinkedInSource, li, tmp_path, experience_years=lambda: 1.0)
+    src.search_jobs(src.plan(query())[0], query())
+    assert "f_E=2%2C3" in li.opened[0] and "f_TPR=r172800" in li.opened[0]
+
+
+def test_linkedin_badge_text_is_not_part_of_the_title(tmp_path: Path) -> None:
+    item = {"id": "4475338717", "title": "AI Engineer with verification", "company": "Acme",
+            "location": "Gurugram", "posted": "2026-10-03", "footer": "",
+            "seen_at": NOW.isoformat()}  # fmt: skip
+    src = source(LinkedInSource, FakeBrowser([]), tmp_path)
+    from integrations.job_sources.base import RawJob
+
+    assert src.normalize_job(RawJob(source_job_id=item["id"], payload=item)).title == "AI Engineer"

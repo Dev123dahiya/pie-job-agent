@@ -52,11 +52,23 @@ CARD_SPEC = {
 }
 
 
-def search_page_url(keyword: str, location: str, page: int, experience_years: int | None) -> str:
+def search_page_url(
+    keyword: str,
+    location: str,
+    page: int,
+    experience_years: int | None,
+    max_age_days: int | None = None,
+) -> str:
     """Page 1 is the plain URL, page N appends -N. ``experience`` makes Naukri itself drop
-    jobs clearly outside the user's experience (REQUIREMENTS 5)."""
+    jobs clearly outside the user's experience (REQUIREMENTS 5); ``jobAge`` keeps only jobs
+    posted in the last N days (checked live 2026-10-04: jobAge=1 -> only "1 day ago")."""
     url = search_url(keyword, location) + (f"-{page}" if page > 1 else "")
-    return url + (f"?experience={experience_years}" if experience_years is not None else "")
+    params = []
+    if experience_years is not None:
+        params.append(f"experience={experience_years}")
+    if max_age_days:
+        params.append(f"jobAge={max_age_days}")
+    return url + ("?" + "&".join(params) if params else "")
 
 
 # --- job page: how to apply (checked on the live job pages 2026-10-04) -------------------

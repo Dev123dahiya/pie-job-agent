@@ -190,9 +190,10 @@ class NaukriSource(PlatformSearchSource):
 
     def page_url(self, task: SearchTask, query: SearchQuery) -> str:
         years = self.experience_years()
+        days = -(-query.max_age_hours // 24) if query.max_age_hours else None  # ceil
         return naukri.search_page_url(
             task.params["term"], task.params["location"], task.params["page"],
-            int(years) if years is not None else None,
+            int(years) if years is not None else None, days,
         )  # fmt: skip
 
     def job_url(self, raw: RawJob) -> str:
@@ -214,13 +215,23 @@ class LinkedInSource(PlatformSearchSource):
 
     def page_url(self, task: SearchTask, query: SearchQuery) -> str:
         return linkedin.search_page_url(
-            task.params["term"], task.params["location"], task.params["page"], query.max_age_hours
-        )
+            task.params["term"], task.params["location"], task.params["page"],
+            query.max_age_hours, self.experience_years(),
+        )  # fmt: skip
 
     def job_url(self, raw: RawJob) -> str:
         if not raw.source_job_id.isdigit():
             raise ValueError("LinkedIn job id is not numeric")
         return linkedin.job_url(raw.source_job_id)
+
+    def normalize_job(self, raw: RawJob) -> JobCandidate:
+        title = str(raw.payload.get("title") or "")
+        for noise in linkedin.TITLE_NOISE:
+            if title.lower().endswith(noise):
+                title = title[: -len(noise)]
+        return super().normalize_job(
+            RawJob(source_job_id=raw.source_job_id, payload={**raw.payload, "title": title})
+        )
 
     def _posted(self, p: dict[str, Any]) -> tuple[datetime | None, str]:
         if p.get("posted"):  # <time datetime="2026-10-02">: a date without a time zone

@@ -132,6 +132,12 @@ after Phase C".
   REVIEW MODE ONLY: the job waits in the Review queue and only the user's "yes" clicks Apply;
   follow-up questions are answered from verified answers, else paused. No Naukri dry-run apply.
   LinkedIn: the user allowed opening ONE Easy Apply form to read its layout and discarding it.
+- 2026-10-04 first real run (discover + analyze, cap 50): 1,149 postings found, 684 new; only 8
+  were fresh enough to score (all rejected: mostly senior LinkedIn roles); ~$0.28 API-equivalent.
+  Naukri results were weeks old (relevance order) and LinkedIn showed senior roles: fixed with
+  Naukri's jobAge filter and LinkedIn's experience-level filter (f_E). Note: with the 48 h window
+  a Naukri "1 day ago" job counts as 48 h old (oldest it can be) and goes stale within minutes;
+  only "today" jobs are scored unless the user widens the freshness window.
 
 ## Environment notes
 

@@ -49,11 +49,36 @@ def job_url(job_id: str) -> str:
     return f"https://www.linkedin.com/jobs/view/{job_id}/"
 
 
-def search_page_url(keyword: str, location: str, page: int, max_age_hours: int | None) -> str:
-    """25 per page (start=0, 25, ...); f_TPR limits results to the freshness window."""
+def experience_levels(years: float | None) -> str | None:
+    """LinkedIn's experience filter (f_E: 1 internship, 2 entry, 3 associate, 4 mid-senior)
+    for the user's total experience, so senior roles are not even listed."""
+    if years is None:
+        return None
+    if years < 1:
+        return "1,2"
+    if years < 3:
+        return "2,3"
+    return "3,4"
+
+
+TITLE_NOISE = (" with verification",)  # the verified-badge text inside the title link
+
+
+def search_page_url(
+    keyword: str,
+    location: str,
+    page: int,
+    max_age_hours: int | None,
+    experience_years: float | None = None,
+) -> str:
+    """25 per page (start=0, 25, ...); f_TPR limits results to the freshness window, f_E to
+    the user's experience level."""
     params = {"keywords": keyword, "location": location, "f_AL": "true", "sortBy": "DD"}
     if max_age_hours:
         params["f_TPR"] = f"r{max_age_hours * 3600}"
+    levels = experience_levels(experience_years)
+    if levels:
+        params["f_E"] = levels
     if page > 1:
         params["start"] = str((page - 1) * 25)
     return f"https://www.linkedin.com/jobs/search/?{urlencode(params)}"
