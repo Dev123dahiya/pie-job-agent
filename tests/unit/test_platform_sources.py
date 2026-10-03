@@ -204,3 +204,13 @@ def test_linkedin_badge_text_is_not_part_of_the_title(tmp_path: Path) -> None:
     from integrations.job_sources.base import RawJob
 
     assert src.normalize_job(RawJob(source_job_id=item["id"], payload=item)).title == "AI Engineer"
+
+
+def test_searches_cover_every_role_before_a_second_location(tmp_path: Path) -> None:
+    src = source(NaukriSource, FakeBrowser([]), tmp_path, max_searches=3)
+    q = SearchQuery(terms=["SDE", "AI Engineer"], locations=["Gurugram", "Noida"])
+    assert [(t.params["term"], t.params["location"]) for t in src.plan(q)] == [
+        ("SDE", "Gurugram"),
+        ("AI Engineer", "Gurugram"),
+        ("SDE", "Noida"),
+    ]

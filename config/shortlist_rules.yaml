@@ -19,7 +19,7 @@ freshness:
   reject: [stale, unknown]
 
 # Minimum Claude match score to shortlist (REQUIREMENTS 6, default 70). null disables it.
-min_match_score: 70
+min_match_score: 80
 # Optional; null disables it.
 max_missing_skills: null
 

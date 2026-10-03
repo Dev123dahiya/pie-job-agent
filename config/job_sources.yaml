@@ -136,7 +136,7 @@ sources:
   - name: naukri
     type: naukri
     enabled: true
-    max_searches: 4
+    max_searches: 8
     pages: 1
     max_details: 15
     request_delay_seconds: 8.0
@@ -144,7 +144,7 @@ sources:
   - name: linkedin
     type: linkedin
     enabled: true
-    max_searches: 3
+    max_searches: 5
     pages: 1
     max_details: 10
     request_delay_seconds: 10.0

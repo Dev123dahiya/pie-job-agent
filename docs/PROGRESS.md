@@ -138,6 +138,9 @@ after Phase C".
   Naukri's jobAge filter and LinkedIn's experience-level filter (f_E). Note: with the 48 h window
   a Naukri "1 day ago" job counts as 48 h old (oldest it can be) and goes stale within minutes;
   only "today" jobs are scored unless the user widens the freshness window.
+- 2026-10-04 user choices: freshness window 72 h (profile); min_match_score 80 (was 70);
+  searches per run: Naukri 8, LinkedIn 5, spread across all roles first. Second run: 12 new
+  jobs, 14 scored, 0 shortlisted (best 68; most fresh jobs are mid/senior roles).
 
 ## Environment notes
 

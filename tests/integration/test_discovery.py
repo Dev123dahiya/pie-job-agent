@@ -222,8 +222,8 @@ def test_location_scope_is_india_wide_with_ncr_first(query: SearchQuery) -> None
         assert location_matches(outside, query) is None, outside
 
 
-def test_preferred_locations_keep_ncr_first_and_add_india() -> None:
-    from backend.core.profile import load_user_profile
-
-    prefs = load_user_profile().preferences
-    assert prefs.preferred_locations == ["Gurugram", "Noida", "Delhi NCR", "Remote", "India"]
+def test_preferred_locations_keep_ncr_first_and_add_india(sources_config: JobSourcesConfig) -> None:
+    """The shipped search config (kept in sync with the profile by the Settings page). Tests
+    never read the user's real profile."""
+    locations = sources_config.search.locations
+    assert locations[:3] == ["Gurugram", "Noida", "Delhi NCR"] and "India" in locations

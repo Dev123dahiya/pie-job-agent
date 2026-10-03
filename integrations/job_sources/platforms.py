@@ -72,7 +72,9 @@ class PlatformSearchSource(JobSource):
     # --- search ------------------------------------------------------------------------
 
     def plan(self, query: SearchQuery) -> list[SearchTask]:
-        pairs = [(t, loc) for t in query.terms for loc in query.locations][: self.max_searches]
+        # Spread searches across roles first: every role in the first (preferred) location,
+        # then every role in the second, and so on, until max_searches.
+        pairs = [(t, loc) for loc in query.locations for t in query.terms][: self.max_searches]
         return [
             SearchTask(
                 label=f"{self.selectors.NAME}: {t} in {loc} (page {p})",
