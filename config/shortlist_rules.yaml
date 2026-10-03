@@ -18,8 +18,9 @@ dimensions:
 freshness:
   reject: [stale, unknown]
 
-# Optional thresholds; null disables them.
-min_match_score: null
+# Minimum Claude match score to shortlist (REQUIREMENTS 6, default 70). null disables it.
+min_match_score: 70
+# Optional; null disables it.
 max_missing_skills: null
 
 # Also require the analyzer's own should_shortlist recommendation to be true.

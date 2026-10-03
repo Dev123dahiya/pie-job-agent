@@ -40,7 +40,7 @@ def test_shipped_rules_file_loads_with_expected_defaults() -> None:
     assert rules.dimensions["role_match"].reject == ["weak"]
     assert rules.dimensions["salary_match"].reject == ["weak"]
     assert rules.freshness.reject == ["stale", "unknown"]  # only FRESH qualifies
-    assert rules.min_match_score is None
+    assert rules.min_match_score == 70  # REQUIREMENTS 6
 
 
 def test_default_rules_accept_unknown_salary_and_missing_skills() -> None:
