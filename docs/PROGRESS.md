@@ -62,7 +62,7 @@ after Phase C".
 - [ ] C5 Needs-my-input: save unanswered questions, answer once, reuse next time
 - [ ] C6 Review mode: wait for yes/no before submit
 - [ ] C7 Stop on daily limit or a platform quota/warning message
-- [ ] C8 Reliability: restart the browser after a freeze; clean up sessions of a dead run
+- [x] C8 Reliability: restart the browser after a freeze; clean up sessions of a dead run
 - [ ] C9 Pages: Review queue, Needs my input, Manual apply, Failed (retry), Runs (start/stop,
       live progress, history), Settings (validated, backed up, diff shown)
 - [ ] C10 End-of-run summary. Needs you: a dry-run, then a review-mode run on Naukri
@@ -110,6 +110,18 @@ after Phase C".
   "Move to shortlist" can override other shortlist rules, never the minimum score.
 - 2026-10-03: work through the to-do list without a plan check-in per phase; stop only for
   steps that need the user, before deleting files or big rewrites. Dry-run stays the default.
+
+## Blockers and open questions
+
+- 2026-10-03: Naukri's bot protection (Akamai) answers an automated headless browser with
+  "403 Access Denied", even for a public search page. PIE will not try to get around it
+  (no stealth plugins, fake fingerprints or user-agent tricks). Next check, with the user:
+  the "log in once" command opens a normal, visible browser with PIE's own profile; the user
+  logs in by hand; then PIE tries one search page in that same visible browser. If Naukri
+  still blocks it, Naukri stays a manual-apply platform (PIE finds and scores jobs from other
+  sources; the user applies on Naukri).
+- LinkedIn's User Agreement does not allow automated applying, and LinkedIn restricts
+  accounts that do it. Phase D needs the user's explicit go-ahead knowing that risk.
 
 ## Environment notes
 

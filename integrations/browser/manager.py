@@ -61,6 +61,19 @@ class UploadResult:
 
 
 @dataclass
+class _Worker:
+    """One browser thread and everything it owns. A frozen worker is abandoned and a new
+    one starts; the old thread tears down its own browser once its stuck call returns."""
+
+    queue: "queue.Queue[tuple[Callable[[], Any], Future[Any]] | None]"
+    thread: threading.Thread | None = None
+    pw: Any = None
+    browser: Any = None
+    persistent: Any = None
+    live: "dict[str, _Live]" = field(default_factory=dict)
+
+
+@dataclass
 class _Live:
     context: Any
     page: Any
@@ -83,26 +96,57 @@ class BrowserManager:
         self.headless = headless
         self.timeout_ms = timeout_ms
         self.user_data_dir = user_data_dir
-        self._queue: queue.Queue[tuple[Callable[[], Any], Future[Any]] | None] = queue.Queue()
-        self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
-        # Thread-confined state (only touched on the browser thread):
-        self._pw: Any = None
-        self._browser: Any = None
-        self._persistent: Any = None
-        self._live: dict[str, _Live] = {}
+        self._worker: _Worker | None = None
+        # Each browser thread sees only its own worker (thread-confined Playwright state).
+        self._tls = threading.local()
+        self.restarts = 0  # browsers abandoned after a freeze, since this process started
 
     # --- thread plumbing ---
 
-    def _ensure_thread(self) -> None:
-        with self._lock:
-            if self._thread is None or not self._thread.is_alive():
-                self._thread = threading.Thread(target=self._loop, name="pie-browser", daemon=True)
-                self._thread.start()
+    @property
+    def _w(self) -> _Worker:
+        """The current thread's worker. Only valid on a browser thread."""
+        worker: _Worker = self._tls.worker
+        return worker
 
-    def _loop(self) -> None:
+    def _ensure_thread(self) -> _Worker:
+        with self._lock:
+            w = self._worker
+            if w is None or w.thread is None or not w.thread.is_alive():
+                w = _Worker(queue=queue.Queue())
+                w.thread = threading.Thread(
+                    target=self._loop, args=(w,), name="pie-browser", daemon=True
+                )
+                self._worker = w
+                w.thread.start()
+            return w
+
+    def _abandon(self, w: _Worker) -> None:
+        """A call on ``w`` froze. Later calls get a fresh browser thread at once instead of
+        each waiting for its own timeout behind the stuck one. Calls still queued on ``w``
+        fail now; the old thread closes its own browser when (if) its stuck call returns."""
+        with self._lock:
+            if self._worker is not w:
+                return  # already replaced
+            self._worker = None
+            self.restarts += 1
         while True:
-            item = self._queue.get()
+            try:
+                item = w.queue.get_nowait()
+            except queue.Empty:
+                break
+            if item is not None:
+                item[1].set_exception(
+                    BrowserError("CRASHED", "The browser froze and was restarted")
+                )
+        w.queue.put(None)
+        logger.warning("Browser froze; started a fresh one for the next job")
+
+    def _loop(self, w: _Worker) -> None:
+        self._tls.worker = w
+        while True:
+            item = w.queue.get()
             if item is None:
                 break
             fn, fut = item
@@ -120,31 +164,36 @@ class BrowserManager:
         self._teardown()
 
     def _call(self, fn: Callable[[], T], timeout: float | None = None) -> T:
-        self._ensure_thread()
+        w = self._ensure_thread()
         fut: Future[T] = Future()
-        self._queue.put((fn, fut))
+        w.queue.put((fn, fut))
         wait = timeout or (self.timeout_ms / 1000) * 4 + 30
         try:
             return fut.result(timeout=wait)
         except FutureTimeout as exc:  # a hung page: report it like any other browser failure
-            fut.cancel()
-            message = f"The browser did not respond within {wait:.0f}s"
+            fut.cancel()  # succeeds only if it never started (stuck behind an earlier call)
+            self._abandon(w)
+            message = (
+                f"The browser did not respond within {wait:.0f}s; it was restarted for the next job"
+            )
             raise BrowserError("TIMEOUT", message) from exc
 
     def shutdown(self) -> None:
-        if self._thread and self._thread.is_alive():
-            self._queue.put(None)
-            self._thread.join(timeout=30)
+        with self._lock:
+            w, self._worker = self._worker, None
+        if w is not None and w.thread is not None and w.thread.is_alive():
+            w.queue.put(None)
+            w.thread.join(timeout=30)
 
     # --- browser-thread internals ---
 
     def _launch(self) -> None:
-        if self._browser is not None or self._persistent is not None:
+        if self._w.browser is not None or self._w.persistent is not None:
             return
         from playwright.sync_api import sync_playwright
 
-        self._pw = sync_playwright().start()
-        chromium = self._pw.chromium
+        self._w.pw = sync_playwright().start()
+        chromium = self._w.pw.chromium
         channels = [None, "msedge", "chrome"] if self.channel == "auto" else [self.channel]
         last: Exception | None = None
         for ch in channels:
@@ -153,34 +202,34 @@ class BrowserManager:
                 kwargs["channel"] = ch
             try:
                 if self.user_data_dir:
-                    self._persistent = chromium.launch_persistent_context(
+                    self._w.persistent = chromium.launch_persistent_context(
                         str(self.user_data_dir), **kwargs
                     )
                 else:
-                    self._browser = chromium.launch(**kwargs)
+                    self._w.browser = chromium.launch(**kwargs)
                 return
             except Exception as exc:  # try the next installed browser
                 last = exc
         raise BrowserError("UNAVAILABLE", f"No usable browser could be launched: {last}")
 
     def _teardown(self) -> None:
-        for sid in list(self._live):
+        for sid in list(self._w.live):
             self._close_live(sid)
-        for obj in (self._persistent, self._browser):
+        for obj in (self._w.persistent, self._w.browser):
             try:
                 if obj is not None:
                     obj.close()
             except Exception:
                 logger.debug("browser close failed", exc_info=True)
-        if self._pw is not None:
+        if self._w.pw is not None:
             try:
-                self._pw.stop()
+                self._w.pw.stop()
             except Exception:
                 logger.debug("playwright stop failed", exc_info=True)
-        self._pw = self._browser = self._persistent = None
+        self._w.pw = self._w.browser = self._w.persistent = None
 
     def _close_live(self, sid: str) -> None:
-        live = self._live.pop(sid, None)
+        live = self._w.live.pop(sid, None)
         if live is None:
             return
         try:
@@ -192,7 +241,7 @@ class BrowserManager:
             logger.debug("context close failed", exc_info=True)
 
     def _get(self, sid: str) -> _Live:
-        live = self._live.get(sid)
+        live = self._w.live.get(sid)
         if live is None or live.page.is_closed():
             raise BrowserError("CRASHED", "The browser page for this session is gone")
         return live
@@ -248,17 +297,17 @@ class BrowserManager:
         def op() -> Snapshot:
             self._launch()
             self._close_live(sid)
-            if self._persistent is not None:
-                context, owns = self._persistent, False
+            if self._w.persistent is not None:
+                context, owns = self._w.persistent, False
                 page = context.new_page()
             else:
-                context, owns = self._browser.new_context(accept_downloads=False), True
+                context, owns = self._w.browser.new_context(accept_downloads=False), True
                 page = context.new_page()
             page.set_default_timeout(self.timeout_ms)
             live = _Live(context=context, page=page, dry_run=dry_run, owns_context=owns)
             if dry_run:
                 page.route("**/*", lambda route: self._guard(live, route))
-            self._live[sid] = live
+            self._w.live[sid] = live
             last: Exception | None = None
             for _ in range(2):  # navigation is a safe read: one retry
                 try:
@@ -294,7 +343,7 @@ class BrowserManager:
 
     def is_alive(self, sid: str) -> bool:
         def op() -> bool:
-            live = self._live.get(sid)
+            live = self._w.live.get(sid)
             return live is not None and not live.page.is_closed()
 
         return self._call(op)
@@ -474,7 +523,7 @@ class BrowserManager:
 
     def crash_for_test(self, sid: str) -> None:
         """Test hook: simulate a browser crash by closing the page underneath the session."""
-        self._call(lambda: self._live[sid].page.close() if sid in self._live else None)
+        self._call(lambda: self._w.live[sid].page.close() if sid in self._w.live else None)
 
 
 _default: BrowserManager | None = None

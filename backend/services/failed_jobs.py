@@ -143,3 +143,63 @@ def retry_failed_job(
     apply_readiness(db, job, app, evaluate_readiness(db, settings, profile, job, app), actor="user")
     db.commit()
     return job
+
+
+# Sessions a running agent was in the middle of. WAITING_FOR_USER and READY_FOR_SUBMISSION are
+# left alone: they wait for the user, who can resume or close them.
+ORPHAN_STATES = {
+    BrowserSessionState.CREATED,
+    BrowserSessionState.OPEN,
+    BrowserSessionState.NAVIGATING,
+    BrowserSessionState.FORM_DETECTED,
+    BrowserSessionState.FILLING,
+}
+RUN_STOPPED = (
+    "The agent run stopped (for example the backend was restarted) while this application "
+    "was being filled in. Nothing was submitted. Retry the job yourself."
+)
+
+
+def fail_orphaned_sessions(db: Session) -> int:
+    """Browser sessions of agent runs that are no longer running (finished, failed, or
+    closed out as dead) can never continue: mark them and their jobs FAILED, like any other
+    browser failure (REQUIREMENTS 12). Called by runs.active_run, after it closes out dead
+    runs. Commits only when something changed. Returns how many were cleaned up."""
+    from backend.services.runs import ACTIVE_STATUSES
+    from database.models import AgentRun
+
+    sessions = db.scalars(
+        select(BrowserSession)
+        .join(AgentRun, AgentRun.id == BrowserSession.run_id)
+        .where(BrowserSession.state.in_(ORPHAN_STATES), AgentRun.status.notin_(ACTIVE_STATUSES))
+    ).all()
+    for session in sessions:
+        job = db.get(Job, session.job_id)
+        app = db.get(Application, session.application_id)
+        session.state = BrowserSessionState.FAILED
+        session.current_step = "Failed: the agent run stopped"
+        session.errors = [*(session.errors or []), {"step": "run_stopped", "error": RUN_STOPPED}]
+        if app is not None:
+            app.last_error = RUN_STOPPED
+        if job is not None and job.pipeline_state in (
+            S.APPLICATION_IN_PROGRESS,
+            S.READY_FOR_SUBMISSION,
+        ):
+            previous = job.pipeline_state
+            assert_transition(previous, S.FAILED)
+            job.pipeline_state = S.FAILED
+            db.add(
+                ApplicationEvent(
+                    job_id=job.id,
+                    application_id=app.id if app else None,
+                    event_type=FAILED_EVENT,
+                    source=EventSource.SYSTEM,
+                    previous_status=previous.value,
+                    new_status=S.FAILED.value,
+                    reason=RUN_STOPPED,
+                    evidence={"stage": "run_stopped", "session_id": str(session.id)},
+                )
+            )
+    if sessions:
+        db.commit()
+    return len(sessions)

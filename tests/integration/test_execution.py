@@ -372,8 +372,8 @@ def test_dry_run_network_guard_blocks_any_post(
     with pytest.raises(Exception, match="Dry-run sessions can never submit"):
         browser.click_submit(sid, "f0_s0")
     # Bypass PIE's own refusal on purpose (test-only access) to prove the network guard.
-    browser._call(lambda: browser._live[sid].page.locator("form").evaluate("f => f.submit()"))
-    browser._call(lambda: browser._live[sid].page.wait_for_timeout(500))
+    browser._call(lambda: browser._w.live[sid].page.locator("form").evaluate("f => f.submit()"))
+    browser._call(lambda: browser._w.live[sid].page.wait_for_timeout(500))
     assert site.submissions == []
     snap = browser.snapshot(sid)
     assert any(r["method"] == "POST" for r in snap.blocked_requests)
@@ -1809,7 +1809,7 @@ def test_blocked_forms_can_never_be_submitted_even_live(
 
 def _contexts(browser: BrowserManager) -> int:
     """Open browser contexts (one per session): a leak shows up here."""
-    return browser._call(lambda: len(browser._browser.contexts) if browser._browser else 0)
+    return browser._call(lambda: len(browser._w.browser.contexts) if browser._w.browser else 0)
 
 
 def test_really_dead_page_still_ends_failed(
@@ -2433,3 +2433,60 @@ def test_api_applications_show_resume_lock_status_and_filters(
     )
     assert bad.status_code == 422
     assert client.get("/api/applications", params={"platform": "indeed"}).status_code == 422
+
+
+# --- C8: sessions of a run that stopped are cleaned up -------------------------------------
+
+
+def test_sessions_of_a_dead_run_are_failed_but_paused_ones_are_kept(
+    db: Session, ready_job: uuid.UUID
+) -> None:
+    from datetime import timedelta
+
+    from backend.services.agent_runner import start_agent_run
+    from backend.services.runs import STALE_AFTER, active_run
+    from database.enums import AgentRunStatus
+
+    job = db.get(Job, ready_job)
+    assert job is not None
+    app = db.scalar(select(Application).where(Application.job_id == ready_job))
+    assert app is not None
+    run = start_agent_run(db, "Apply", mode="read_only", max_iterations=4)
+    run.status = AgentRunStatus.RUNNING
+    run.heartbeat_at = utcnow() - STALE_AFTER - timedelta(minutes=1)  # the backend died
+    job.pipeline_state = S.APPLICATION_IN_PROGRESS
+
+    def session(state: B, run_id: uuid.UUID | None) -> BrowserSession:
+        s = BrowserSession(
+            application_id=app.id, job_id=job.id, run_id=run_id, mode=BrowserExecutionMode.DRY_RUN,
+            state=state, target_url="http://127.0.0.1/x", target_domain="127.0.0.1",
+            detected_fields=[], filled_fields=[],
+            skipped_fields=[], missing_answers=[], challenges=[], screenshots=[], errors=[],
+            blocked_requests=[],
+        )  # fmt: skip
+        db.add(s)
+        return s
+
+    filling = session(B.FILLING, run.id)
+    paused = session(B.WAITING_FOR_USER, run.id)  # waits for the user: never touched
+    manual = session(B.NAVIGATING, None)  # a user's own dry run: resumable, never touched
+    db.commit()
+
+    assert active_run(db) is None
+    db.expire_all()
+    assert db.get(BrowserSession, filling.id).state is B.FAILED  # type: ignore[union-attr]
+    assert db.get(BrowserSession, paused.id).state is B.WAITING_FOR_USER  # type: ignore[union-attr]
+    assert db.get(BrowserSession, manual.id).state is B.NAVIGATING  # type: ignore[union-attr]
+    assert job_state(db, ready_job) is S.FAILED
+    event = db.scalars(
+        select(ApplicationEvent).where(ApplicationEvent.event_type == "execution_failed")
+    ).one()
+    assert event.evidence and event.evidence["stage"] == "run_stopped"
+    # The failed job shows up for a manual retry, with the reason.
+    from backend.services.failed_jobs import list_failed_jobs
+
+    failed = list_failed_jobs(db)
+    assert [f.job_id for f in failed] == [str(ready_job)] and "Nothing was submitted" in (
+        failed[0].error or ""
+    )
+    assert active_run(db) is None  # running it again changes nothing
