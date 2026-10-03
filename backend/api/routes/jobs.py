@@ -322,6 +322,30 @@ def failed_jobs(db: DB, limit: int = Query(100, ge=1, le=500)) -> dict[str, Any]
     return {"items": items, "total": len(items)}
 
 
+class RetryBatchIn(BaseModel):
+    job_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
+
+
+@router.post("/retry-batch")
+def retry_batch(
+    body: RetryBatchIn,
+    db: DB,
+    settings: Annotated[Settings, Depends(get_settings)],
+    profile: Annotated[UserProfile, Depends(profile_dep)],
+) -> dict[str, Any]:
+    """The user's "Retry all selected": each failed job goes back in the queue on its own;
+    one that can't be retried is reported, not fatal. Nothing is opened or submitted."""
+    results = []
+    for job_id in dict.fromkeys(body.job_ids):
+        try:
+            job = retry_failed_job(db, settings, profile, job_id)
+            results.append({"job_id": str(job_id), "ok": True, "status": job.pipeline_state.value})
+        except RetryError as exc:
+            db.rollback()
+            results.append({"job_id": str(job_id), "ok": False, "error": str(exc)})
+    return {"results": results, "retried": sum(r["ok"] for r in results)}
+
+
 @router.get("/filters", response_model=JobFilterOptions)
 def filter_options(
     db: DB, profile: Annotated[UserProfile, Depends(profile_dep)]

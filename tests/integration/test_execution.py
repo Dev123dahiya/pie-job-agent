@@ -2605,3 +2605,28 @@ def test_needs_input_standard_answers_and_refusals(
     assert post("Bad Key!") == 422
     assert post("notice_period", "") == 422
     assert post("notice_period", "x" * 2001) == 422
+
+
+# --- C9: Failed page ------------------------------------------------------------------------
+
+
+def test_failed_page_api_screenshot_and_retry_selected(
+    client: Any, api: Any, db: Session, failed_job: uuid.UUID
+) -> None:
+    [item] = client.get("/api/jobs/failed").json()["items"]
+    assert item["application_id"] and item["session_id"] and item["screenshot_index"] is not None
+    shot = client.get(
+        f"/api/applications/{item['application_id']}/sessions/{item['session_id']}"
+        f"/screenshots/{item['screenshot_index']}"
+    )
+    assert shot.status_code == 200 and shot.headers["content-type"] == "image/png"
+
+    missing = str(uuid.uuid4())
+    res = client.post("/api/jobs/retry-batch", json={"job_ids": [str(failed_job), missing]})
+    body = res.json()
+    assert res.status_code == 200 and body["retried"] == 1
+    ok, bad = body["results"]
+    assert ok["ok"] and ok["status"] != "FAILED"
+    assert not bad["ok"] and "No job" in bad["error"]
+    assert client.get("/api/jobs/failed").json()["total"] == 0
+    assert client.post("/api/jobs/retry-batch", json={"job_ids": []}).status_code == 422

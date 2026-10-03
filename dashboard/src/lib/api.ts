@@ -1,4 +1,5 @@
 import { type LogPage, logsQueryString } from "./logs";
+import type { FailedList } from "./failed";
 import type { NeedsInput } from "./needsInput";
 import type {
   AgentStatus,
@@ -188,4 +189,9 @@ export function getLogs(params: Record<string, string | string[] | undefined>, f
 /** Jobs waiting for the user (with their questions) and the user's saved answers. */
 export function getNeedsInput(fetchImpl?: typeof fetch) {
   return fetched<NeedsInput>("/api/needs-input", fetchImpl);
+}
+
+/** Failed jobs with error, stage and screenshot. Retried only by the user. */
+export function getFailedJobs(fetchImpl?: typeof fetch) {
+  return fetched<FailedList>("/api/jobs/failed", fetchImpl);
 }

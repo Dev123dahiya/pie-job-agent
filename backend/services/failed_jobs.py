@@ -50,6 +50,10 @@ class FailedJob:
     failed_at: datetime | None
     screenshot: str | None  # relative to APPLICATION_ARTIFACTS_DIR
     retries: int
+    # Where the dashboard can show the failure screenshot from (applications API).
+    application_id: str | None = None
+    session_id: str | None = None
+    screenshot_index: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -76,10 +80,9 @@ def list_failed_jobs(db: Session, limit: int = 200) -> list[FailedJob]:
             .where(BrowserSession.job_id == job.id)
             .order_by(BrowserSession.created_at.desc())
         ).first()
-        shot = next(
-            (s["file"] for s in reversed(session.screenshots or []) if s["label"] == "failed"),
-            None,
-        ) if session else None  # fmt: skip
+        shots = list(enumerate(session.screenshots or [])) if session else []
+        failed_shot = next(((i, s) for i, s in reversed(shots) if s["label"] == "failed"), None)
+        shot = failed_shot[1]["file"] if failed_shot else None
         app = db.scalar(select(Application).where(Application.job_id == job.id))
         retries = db.scalar(
             select(func.count())
@@ -97,6 +100,9 @@ def list_failed_jobs(db: Session, limit: int = 200) -> list[FailedJob]:
                 failed_at=failure.occurred_at if failure else None,
                 screenshot=shot,
                 retries=int(retries or 0),
+                application_id=str(app.id) if app else None,
+                session_id=str(session.id) if session and failed_shot else None,
+                screenshot_index=failed_shot[0] if failed_shot else None,
             )
         )
     return out

@@ -1,6 +1,7 @@
 import {
   Bot,
   Briefcase,
+  CircleX,
   FileText,
   LayoutDashboard,
   MessageCircleQuestion,
@@ -26,6 +27,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/shortlisted", label: "Shortlisted", icon: Star, phase: 2 },
   { href: "/applications", label: "Applications", icon: Send, phase: 5 },
   { href: "/needs-input", label: "Needs my input", icon: MessageCircleQuestion, phase: 1 },
+  { href: "/failed", label: "Failed", icon: CircleX, phase: 1 },
   { href: "/emails", label: "Emails", icon: Mail, phase: 6 },
   { href: "/resumes", label: "Resumes", icon: FileText, phase: 4 },
   { href: "/agent", label: "Agent", icon: Bot, phase: 3 },
