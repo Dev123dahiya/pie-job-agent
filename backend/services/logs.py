@@ -1,8 +1,10 @@
 """Reading the backend's log files for the Logs page (REQUIREMENTS 19.2.11).
 
 Source: data/logs/backend.log and its rotated copies (backend.log.1 ... .5), written by
-backend/core/logging.py. Every line is redacted again on the way out, so a secret that slipped
-into an old file is still never shown or downloaded.
+backend/core/logging.py, which already redacts every line it writes. Lines are redacted again
+on the way out, so a secret that slipped into an old file is still never shown or downloaded.
+Filtering runs on the stored text and only the lines returned are redacted again: redacting
+all ~200k lines on every request took close to a minute.
 
 Filters:
 - level: this level and above (DEBUG < INFO < WARNING < ERROR < CRITICAL)
@@ -101,9 +103,13 @@ def log_files(log_dir: Path) -> list[Path]:
     return rotated + ([current] if current.is_file() else [])
 
 
+def _redacted(line: LogLine) -> LogLine:
+    return LogLine(at=line.at, level=line.level, logger=line.logger, message=redact(line.message))
+
+
 def read_lines(log_dir: Path) -> Iterator[LogLine]:
-    """Every log entry, oldest first. Lines that don't start an entry (tracebacks) are
-    appended to the entry before them."""
+    """Every log entry, oldest first, as stored (callers redact what they return). Lines
+    that don't start an entry (tracebacks) are appended to the entry before them."""
     for path in log_files(log_dir):
         entry: LogLine | None = None
         try:
@@ -118,13 +124,13 @@ def read_lines(log_dir: Path) -> Iterator[LogLine]:
                     if entry is not None:
                         yield entry
                     entry = LogLine(
-                        at=datetime.strptime(m["at"], "%Y-%m-%d %H:%M:%S"),
+                        at=datetime.fromisoformat(m["at"]),
                         level=m["level"],
                         logger=m["logger"].strip(),
-                        message=redact(m["message"]),
+                        message=m["message"],
                     )
                 elif entry is not None and raw:
-                    entry.message += "\n" + redact(raw)
+                    entry.message += "\n" + raw
         if entry is not None:
             yield entry
 
@@ -139,10 +145,12 @@ def search(log_dir: Path, flt: LogFilter, limit: int, offset: int) -> LogPage:
     """Newest first."""
     matched = [line for line in read_lines(log_dir) if flt.matches(line)]
     matched.reverse()
-    return LogPage(items=matched[offset : offset + limit], total=len(matched))
+    page = [_redacted(line) for line in matched[offset : offset + limit]]
+    return LogPage(items=page, total=len(matched))
 
 
-def export_text(log_dir: Path, flt: LogFilter, max_lines: int = 100_000) -> str:
-    """The filtered log as a text file (oldest first), redacted."""
-    lines = [line.text() for line in read_lines(log_dir) if flt.matches(line)]
-    return "\n".join(lines[-max_lines:]) + ("\n" if lines else "")
+def export_text(log_dir: Path, flt: LogFilter, max_lines: int = 20_000) -> str:
+    """The filtered log as a text file (oldest first, the newest max_lines), redacted."""
+    matched = [line for line in read_lines(log_dir) if flt.matches(line)][-max_lines:]
+    lines = [_redacted(line).text() for line in matched]
+    return "\n".join(lines) + ("\n" if lines else "")

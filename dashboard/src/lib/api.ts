@@ -27,10 +27,10 @@ export function apiBaseUrl(): string {
   return (process.env.PIE_API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 }
 
-async function getJson<T>(path: string, fetchImpl: typeof fetch = fetch): Promise<T> {
+async function getJson<T>(path: string, fetchImpl: typeof fetch = fetch, timeoutMs = 2500): Promise<T> {
   const res = await fetchImpl(`${apiBaseUrl()}${path}`, {
     cache: "no-store",
-    signal: AbortSignal.timeout(2500),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`${path} responded ${res.status}`);
   return (await res.json()) as T;
@@ -50,9 +50,9 @@ export async function getHealth(fetchImpl?: typeof fetch): Promise<Health | null
   }
 }
 
-async function fetched<T>(path: string, fetchImpl?: typeof fetch): Promise<Fetched<T>> {
+async function fetched<T>(path: string, fetchImpl?: typeof fetch, timeoutMs?: number): Promise<Fetched<T>> {
   try {
-    return { ok: true, data: await getJson<T>(path, fetchImpl) };
+    return { ok: true, data: await getJson<T>(path, fetchImpl, timeoutMs) };
   } catch (err) {
     const offline = err instanceof TypeError || (err instanceof Error && err.name === "TimeoutError");
     return { ok: false, error: offline ? "The backend is not reachable." : String((err as Error).message) };
@@ -181,5 +181,5 @@ export function getDailyLimits(fetchImpl?: typeof fetch) {
 
 /** The backend log, filtered and redacted by the backend (newest first). */
 export function getLogs(params: Record<string, string | string[] | undefined>, fetchImpl?: typeof fetch) {
-  return fetched<LogPage>(`/api/logs${logsQueryString(params)}`, fetchImpl);
+  return fetched<LogPage>(`/api/logs${logsQueryString(params)}`, fetchImpl, 15_000); // reads the whole log
 }
