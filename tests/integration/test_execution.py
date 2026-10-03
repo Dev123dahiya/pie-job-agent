@@ -1277,6 +1277,13 @@ def test_browser_manager_exposes_only_fixed_operations() -> None:
         "read_page_text",
         # The one Naukri click: only from naukri_apply.submit after the user's "yes".
         "click_platform_apply",
+        # LinkedIn Easy Apply panel: open, read, Next/Review/Back only, Submit (refused for
+        # dry runs; only after the user's "yes"), Dismiss + Discard.
+        "li_open",
+        "panel_snapshot",
+        "panel_click",
+        "panel_submit",
+        "panel_discard",
     }
 
 
@@ -2663,7 +2670,6 @@ def test_runs_dry_run_apply_never_submits(
 def test_runs_refuse_what_is_not_allowed(client: Any, api: Any, ready_job: uuid.UUID) -> None:
     assert _start(client, steps=[]).status_code == 422
     assert _start(client, steps=["fly"]).status_code == 422
-    assert _start(client, steps=["apply"], platforms=["linkedin"]).status_code == 422
     assert _start(client, steps=["apply"], mode="auto").status_code == 422  # not built
     assert _start(client, steps=["analyze"], analysis_limit=51).status_code == 422
     # Review mode is live: refused while DEVELOPMENT_MODE / the live switch say no.
@@ -2671,8 +2677,7 @@ def test_runs_refuse_what_is_not_allowed(client: Any, api: Any, ready_job: uuid.
     assert res.status_code == 422 and "DEVELOPMENT_MODE" in res.json()["detail"]
     opts = client.get("/api/runs/options").json()
     assert opts["default_mode"] == "dry-run" and opts["live_possible"] is False
-    linkedin = next(p for p in opts["platforms"] if p["platform"] == "linkedin")
-    assert linkedin["apply_supported"] is False
+    assert all(p["apply_supported"] for p in opts["platforms"])  # all three platforms built
 
 
 def test_runs_review_mode_needs_the_exact_confirmation_and_never_submits(
@@ -2968,3 +2973,117 @@ def test_naukri_approve_respects_the_daily_limit(
         "DUPLICATE_APPLICATION",
     )
     assert fake.clicks == []
+
+
+# --- D: LinkedIn Easy Apply against a local, LinkedIn-shaped page --------------------------
+
+
+@pytest.fixture(scope="module")
+def li_site() -> Iterator[Any]:
+    from tests.fixtures.linkedin_site import LinkedInSite
+
+    site = LinkedInSite().start()
+    yield site
+    site.stop()
+
+
+@pytest.fixture
+def li_job(client: Any, api: Any, db: Session, li_site: Any, browser: Any) -> Any:
+    from backend.api.deps import platform_browser_dep
+
+    li_site.submissions.clear()
+    li_site.discards.clear()
+    client.app.dependency_overrides[platform_browser_dep] = lambda: lambda platform: browser
+
+    def make(case: str) -> uuid.UUID:
+        job = Job(
+            source="linkedin", source_job_id=f"447533{len(case)}{case[:2]}",
+            title="Python Developer",
+            url=li_site.url(case), location="Gurugram, India", description="Python",
+            posted_at=utcnow(), pipeline_state=S.SHORTLISTED,
+        )  # fmt: skip
+        db.add(job)
+        db.commit()
+        assert client.post(f"/api/jobs/{job.id}/application-draft", json={}).status_code == 200
+        assert job_state(db, job.id) is S.READY_TO_APPLY  # no tailored resume on LinkedIn
+        return job.id
+
+    return make
+
+
+def _li_run(client: Any, **body: Any) -> dict[str, Any]:
+    res = _start(client, steps=["apply"], platforms=["linkedin"], **body)
+    assert res.status_code == 202, res.text
+    return dict(client.get(f"/api/runs/{res.json()['run_id']}").json())
+
+
+def test_linkedin_dry_run_fills_every_step_and_discards(
+    client: Any, api: Any, db: Session, li_job: Any, li_site: Any, exec_profile: UserProfile
+) -> None:
+    job_id = li_job("normal")
+    run = _li_run(client)
+    assert run["report"]["counts"] == {"linkedin_dry_run_complete": 1}, run["report"]
+    assert li_site.submissions == [] and li_site.discards == ["normal"]
+    assert job_state(db, job_id) is S.READY_TO_APPLY
+    session = db.scalars(select(BrowserSession).where(BrowserSession.job_id == job_id)).one()
+    keys = {f["key"] for f in session.filled_fields}
+    assert {"phone", "work_authorization", "notice_period"} <= keys
+    assert _leaks(exec_profile, {"session": session.filled_fields}) == []  # labels and keys only
+
+
+def test_linkedin_unknown_question_pauses_for_the_user(
+    client: Any, api: Any, db: Session, li_job: Any, li_site: Any
+) -> None:
+    job_id = li_job("unknown")
+    run = _li_run(client)
+    assert run["report"]["counts"] == {"linkedin_needs_input": 1}
+    assert job_state(db, job_id) is S.BLOCKED_NEEDS_USER and li_site.submissions == []
+    [paused] = client.get("/api/needs-input").json()["jobs"]
+    assert any("Kubernetes" in q["question"] for q in paused["questions"])
+
+
+def test_linkedin_stuck_form_fails_cleanly(
+    client: Any, api: Any, db: Session, li_job: Any, li_site: Any
+) -> None:
+    job_id = li_job("stuck")
+    run = _li_run(client)
+    assert run["report"]["counts"] == {"linkedin_failed": 1}
+    assert job_state(db, job_id) is S.FAILED and li_site.submissions == []
+
+
+def test_linkedin_review_then_approve_submits_once(
+    client: Any, api: Any, db: Session, li_job: Any, li_site: Any, live_settings: Settings
+) -> None:
+    job_id = li_job("normal")
+    api["settings"] = live_settings
+    phrase = next(
+        p
+        for p in client.get("/api/runs/options").json()["platforms"]
+        if p["platform"] == "linkedin"
+    )["review_confirmation"]["phrase"]
+    assert phrase == "LIVE on linkedin: up to 5 today"
+    run = _li_run(client, mode="review", confirmation=phrase)
+    assert run["report"]["counts"] == {"linkedin_waiting_for_review": 1}
+    assert li_site.submissions == [] and job_state(db, job_id) is S.READY_FOR_SUBMISSION
+    [item] = client.get("/api/review").json()["items"]
+    assert item["platform"] == "linkedin"
+    url = f"/api/review/{item['session_id']}/approve"
+    ok = client.post(url, json={"statement": item["confirmation_statement"]})
+    assert ok.json()["submitted"] is True, ok.json()
+    assert li_site.submissions == ["normal"] and job_state(db, job_id) is S.SUBMITTED
+    assert client.post(url, json={"statement": item["confirmation_statement"]}).status_code == 409
+    assert li_site.submissions == ["normal"]
+
+
+def test_linkedin_dry_run_sessions_can_never_submit(browser: Any, li_site: Any) -> None:
+    li_site.submissions.clear()
+    sid = str(uuid.uuid4())
+    panel = browser.li_open(sid, li_site.url("normal"), dry_run=True,
+                            button_name="Easy Apply to this job")  # fmt: skip
+    assert panel["heading"] == "Apply to Acme" and "Next" in panel["buttons"]
+    with pytest.raises(BrowserError):
+        browser.panel_submit(sid)
+    with pytest.raises(BrowserError):
+        browser.panel_click(sid, "Submit application")  # only Next / Review / Back
+    browser.panel_discard(sid, "Dismiss", "Discard")
+    assert li_site.submissions == []

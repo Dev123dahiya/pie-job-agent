@@ -69,7 +69,7 @@ after Phase C".
 
 ### Phase D: LinkedIn Easy Apply
 
-- [~] D-1 LinkedIn module behind the same interface (login + Easy Apply search done, live-checked 2026-10-04: 25 cards/page; Easy Apply itself to do) (search + Easy Apply), limit 5/day.
+- [x] D-1 LinkedIn module: login, Easy Apply search (live-checked 2026-10-04: 25 cards/page) and Easy Apply (dry run + review mode; built against a local LinkedIn-shaped page; first live dry run still to do, with the user's OK) (search + Easy Apply), limit 5/day.
       Needs you: log in to LinkedIn once; a dry-run, then a review-mode run
 
 ### Phase E: answers, models, auto mode

@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 Step = Literal["discover", "analyze", "tailor", "apply"]
 STEPS: tuple[Step, ...] = ("discover", "analyze", "tailor", "apply")
 Mode = Literal["dry-run", "review"]
-BUILT_PLATFORMS: frozenset[Platform] = frozenset({"company_site", "naukri"})
+BUILT_PLATFORMS: frozenset[Platform] = frozenset({"company_site", "naukri", "linkedin"})
 MAX_ANALYSIS = 50  # agreed cap for one run
 
 
@@ -349,6 +349,29 @@ class PipelineService:
                 if outcome in ("blocked", "login_needed"):
                     report.failures.append(_failure("apply", job, f"Naukri: {outcome}"))
                     break
+                continue
+            if platform_of(job) == "linkedin":
+                if deps.platform_browser is None:
+                    break
+                from backend.services import linkedin_apply
+
+                li_ctx = svc.ExecContext(
+                    db=db, settings=deps.settings, profile=deps.profile,
+                    browser=deps.platform_browser("linkedin"),
+                    mode=BrowserExecutionMode.LIVE if live else BrowserExecutionMode.DRY_RUN,
+                    actor="agent", run=run,
+                )  # fmt: skip
+                try:
+                    li = linkedin_apply.run(li_ctx, job)
+                except svc.ExecutionError as exc:
+                    report.failures.append(_failure("apply", job, f"{exc.code}: {exc.message}"))
+                    if exc.code in STOP_APPLYING:
+                        break
+                    continue
+                done += 1
+                report.add(f"linkedin_{li['outcome']}")
+                if li.get("error"):
+                    report.failures.append(_failure("apply", job, f"LinkedIn: {li['error']}"))
                 continue
             ctx = svc.ExecContext(
                 db=db,

@@ -142,6 +142,13 @@ def _approve(
             db.refresh(s)
             out = naukri_apply.submit(db, settings, profile, platform_browser("naukri"), s)
             return {"session_id": str(sid), **out}
+        if platform_of(job) == "linkedin":
+            from backend.services import linkedin_apply
+
+            db.refresh(s)
+            li_ctx = _ctx(db, settings, profile, platform_browser("linkedin"))
+            out = linkedin_apply.submit(li_ctx, s)
+            return {"session_id": str(sid), **out}
         ctx.tool = "submit_application"
         out = svc.submit(ctx, s.id)
     except svc.ExecutionError as exc:

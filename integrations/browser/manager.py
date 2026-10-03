@@ -14,6 +14,7 @@ makes, so even an accidental click cannot send a form or upload a file to the em
 import contextlib
 import logging
 import queue
+import re
 import threading
 from collections.abc import Callable
 from concurrent.futures import Future
@@ -626,6 +627,112 @@ class BrowserManager:
             }
 
         return self._call(op)
+
+    # --- LinkedIn Easy Apply panel (a form drawn inside #interop-outlet's shadow root) --------
+
+    _PANEL_HOST = "#interop-outlet"
+    _PANEL_STEP_BUTTONS = ("Next", "Review", "Back")  # the only buttons panel_click may press
+
+    def _panel(self, live: _Live) -> dict[str, Any]:
+        page = live.page
+        data = page.evaluate(EXTRACT_FORM, {"prefix": "f0_", "host": self._PANEL_HOST})
+        names = (*self._PANEL_STEP_BUTTONS, "Submit application")
+        buttons = [n for n in names if page.get_by_role("button", name=n, exact=True).count()]
+        heading = page.locator("h2, h3").filter(has_text=re.compile(r"^\s*Apply to ")).first
+        text = data["signals"]["ui_text"]
+        return {
+            "fields": data["fields"],
+            "buttons": buttons,
+            "heading": heading.inner_text().strip() if heading.count() else None,
+            "ui_text": text,
+            # Locators see inside the shadow root; body.innerText does not.
+            "sent": page.get_by_text(re.compile(r"application (was )?sent", re.I)).count() > 0,
+            "url": redact_url(page.url) or "",
+        }
+
+    def li_open(self, sid: str, url: str, *, dry_run: bool, button_name: str) -> dict[str, Any]:
+        """Open a LinkedIn job page and its Easy Apply panel (opening sends nothing). The
+        page is kept for the session. No request guard here: LinkedIn's own UI needs its
+        requests; a dry run is safe because nothing ever clicks Submit for it."""
+
+        def op() -> dict[str, Any]:
+            self._launch()
+            self._close_live(sid)
+            if self._w.persistent is not None:
+                context, owns = self._w.persistent, False
+            else:
+                context, owns = self._w.browser.new_context(), True
+            page = context.new_page()
+            page.set_default_timeout(self.timeout_ms)
+            live = _Live(context=context, page=page, dry_run=dry_run, owns_context=owns)
+            self._w.live[sid] = live
+            response = page.goto(url, wait_until="domcontentloaded")
+            live.http_status = response.status if response else None
+            self._settle(page)
+            button = page.get_by_role("button", name=button_name, exact=True).first
+            if button.count() == 0:
+                raise BrowserError("NOT_FOUND", "No Easy Apply button on the job page")
+            button.click()
+            heading = page.locator("h2, h3").filter(has_text=re.compile(r"^\s*Apply to "))
+            heading.first.wait_for(timeout=15_000)
+            page.wait_for_timeout(800)
+            return self._panel(live)
+
+        return self._call(op)
+
+    def panel_snapshot(self, sid: str) -> dict[str, Any]:
+        return self._call(lambda: self._panel(self._get(sid)))
+
+    def panel_click(self, sid: str, text: str) -> dict[str, Any]:
+        """Press Next / Review / Back (never Submit) and read the next step."""
+        if text not in self._PANEL_STEP_BUTTONS:
+            raise BrowserError("NOT_FOUND", f"'{text}' is not a step button")
+
+        def op() -> dict[str, Any]:
+            live = self._get(sid)
+            button = live.page.get_by_role("button", name=text, exact=True).first
+            if button.count() == 0:
+                raise BrowserError("NOT_FOUND", f"No '{text}' button")
+            button.click()
+            live.page.wait_for_timeout(1200)
+            return self._panel(live)
+
+        return self._call(op)
+
+    def panel_submit(self, sid: str) -> dict[str, Any]:
+        """The ONE irreversible LinkedIn click. Refused outright for dry-run sessions."""
+
+        def op() -> dict[str, Any]:
+            live = self._get(sid)
+            if live.dry_run:
+                raise BrowserError("NOT_FOUND", "Dry-run sessions can never submit")
+            button = live.page.get_by_role("button", name="Submit application", exact=True)
+            if button.count() != 1:
+                raise BrowserError("NOT_FOUND", "Submit button not found")
+            button.click()
+            live.page.wait_for_timeout(4000)
+            return self._panel(live)
+
+        return self._call(op)
+
+    def panel_discard(self, sid: str, dismiss_label: str, discard_text: str) -> None:
+        """Close the panel without submitting (Dismiss, then Discard if asked) and the page."""
+
+        def op() -> None:
+            live = self._w.live.get(sid)
+            if live is None or live.page.is_closed():
+                return
+            page = live.page
+            with contextlib.suppress(Exception):
+                page.locator(f"button[aria-label='{dismiss_label}']").first.click(timeout=5000)
+                page.wait_for_timeout(1000)
+                discard = page.get_by_role("button", name=discard_text, exact=True)
+                if discard.count():
+                    discard.first.click(timeout=5000)
+                    page.wait_for_timeout(800)
+            self._close_live(sid)
+
+        self._call(op)
 
     def close(self, sid: str) -> None:
         self._call(lambda: self._close_live(sid))

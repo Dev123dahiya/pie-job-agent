@@ -105,8 +105,8 @@ def evaluate_readiness(
     result.user_blockers = user_blockers(settings, profile, db)
     if app is None:
         result.pending_steps.append("Create an application draft (create_application_draft)")
-    elif job.source != "naukri" and validated_resume_for(db, job, app) is None:
-        # (Naukri sends the resume saved on the user's Naukri profile: nothing to tailor.)
+    elif job.source not in ("naukri", "linkedin") and validated_resume_for(db, job, app) is None:
+        # (Naukri / LinkedIn send the resume saved on the user's profile there: no tailoring.)
         result.pending_steps.append(
             "Create a validated tailored resume for this job (create_tailored_resume)"
         )
