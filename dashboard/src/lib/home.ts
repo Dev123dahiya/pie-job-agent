@@ -38,7 +38,12 @@ export function limitTone(l: DailyLimit): "good" | "warning" | "critical" {
 
 export function loginText(p: PlatformMode): string {
   if (p.platform === "company_site") return "Not needed (each employer's own site)";
-  if (!p.built || p.login === null) return "Available after Phase C";
-  const text = { logged_in: "Logged in", expired: "Expired - log in again", never: "Never logged in" };
+  if (p.login === null) return "Available after Phase C";
+  const text = {
+    logged_in: "Logged in",
+    expired: "Expired - log in again",
+    never: "Never logged in",
+    blocked: "Blocked by the site's bot protection",
+  };
   return text[p.login];
 }

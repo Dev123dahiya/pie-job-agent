@@ -51,9 +51,9 @@ after Phase C".
 
 ### Phase C: Naukri
 
-- [ ] C1 Common platform interface (login check, search_jobs, get_job_details, apply); one
+- [x] C1 Common platform interface (login check, search_jobs, get_job_details, apply); one
       selectors file per platform
-- [ ] C2 "Log in once" command with a persistent browser profile; expired session pauses the
+- [~] C2 "Log in once" command (built: `python -m backend.scripts.login naukri --test-search`) with a persistent browser profile; expired session pauses the
       platform. Needs you: log in to Naukri once (OTP)
 - [ ] C3 Naukri search from config (keywords, locations, experience, freshness, exclusions);
       skip out-of-range experience before scoring; cross-site duplicate check
@@ -63,8 +63,8 @@ after Phase C".
 - [x] C6 Review mode: wait for yes/no before submit (Runs page review mode + Review queue)
 - [ ] C7 Stop on daily limit or a platform quota/warning message
 - [x] C8 Reliability: restart the browser after a freeze; clean up sessions of a dead run
-- [ ] C9 Pages: Review queue, Needs my input, Manual apply, Failed (retry), Runs (start/stop,
-      live progress, history) done; Settings (validated, backed up, diff shown) to do
+- [x] C9 Pages: Review queue, Needs my input, Manual apply, Failed (retry), Runs (start/stop,
+      live progress, history), Settings (validated, backed up, diff shown)
 - [ ] C10 End-of-run summary. Needs you: a dry-run, then a review-mode run on Naukri
 
 ### Phase D: LinkedIn Easy Apply

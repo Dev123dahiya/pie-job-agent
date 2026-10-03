@@ -500,7 +500,8 @@ export interface PlatformMode {
   mode: "dry-run" | "review" | "auto";
   built: boolean;
   note: string | null;
-  login: "logged_in" | "expired" | "never" | null;
+  login: "logged_in" | "expired" | "never" | "blocked" | null;
+  login_command?: string | null;
 }
 
 export interface HomeStatus {

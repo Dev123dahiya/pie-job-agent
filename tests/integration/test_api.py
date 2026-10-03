@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -106,3 +107,18 @@ def test_home_endpoint(client: TestClient) -> None:
     assert body["all_time"] == dict.fromkeys(
         ["found", "skipped", "applied", "needs_input", "manual", "failed"], 0
     )
+
+
+def test_home_shows_the_saved_naukri_login(db: Session, tmp_path: Any) -> None:
+    from backend.core.config import Settings
+    from backend.services.dashboard import build_home
+    from integrations.platforms.base import LoginCheck, save_status
+
+    home = build_home(db, Settings(), data_dir=tmp_path)
+    naukri = next(p for p in home.platforms if p.platform == "naukri")
+    assert (
+        naukri.login == "never" and naukri.login_command and "login naukri" in naukri.login_command
+    )
+    save_status(tmp_path, "naukri", LoginCheck("blocked", "Naukri refused PIE's browser"))
+    home = build_home(db, Settings(), data_dir=tmp_path)
+    assert next(p for p in home.platforms if p.platform == "naukri").login == "blocked"

@@ -50,6 +50,8 @@ describe("Home: live banner and modes", () => {
   it("says when a platform's login is not built yet", () => {
     const naukri: PlatformMode = { platform: "naukri", mode: "dry-run", built: false, note: null, login: null };
     expect(loginText(naukri)).toBe("Available after Phase C");
+    expect(loginText({ ...naukri, login: "blocked" })).toContain("bot protection");
+    expect(loginText({ ...naukri, login: "never" })).toBe("Never logged in");
     expect(loginText({ ...naukri, built: true, login: "expired" })).toContain("log in again");
     render(<PlatformModes platforms={[naukri]} livePossible={false} />);
     expect(screen.getByText("Dry run")).toBeInTheDocument();

@@ -17,6 +17,9 @@ export function PlatformModes({ platforms, livePossible }: { platforms: Platform
               <p className="text-sm font-medium text-ink">{PLATFORM_LABEL[p.platform]}</p>
               <p className="text-xs text-ink-3">Login: {loginText(p)}</p>
               {p.note && <p className="text-xs text-ink-3">{p.note}</p>}
+              {p.login_command && p.login !== "logged_in" && (
+                <p className="mt-0.5 font-mono text-[11px] text-ink-2">{p.login_command}</p>
+              )}
             </div>
             <span
               data-mode={p.mode}

@@ -1,13 +1,14 @@
 """Aggregates for the dashboard overview, computed from the database."""
 
 from datetime import UTC, datetime, time
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.core.config import Settings
+from backend.core.config import REPO_ROOT, Settings
 from database.enums import ApplicationStatus as AS
 from database.enums import EmailClassification as EC
 from database.enums import JobPipelineState as JS
@@ -148,7 +149,8 @@ class PlatformMode(BaseModel):
     mode: str  # dry-run | review | auto
     built: bool  # False: the platform module comes in a later phase
     note: str | None
-    login: str | None  # logged_in | expired | never; None = not applicable / not built yet
+    login: str | None  # logged_in | expired | never | blocked; None = not applicable / not built
+    login_command: str | None = None  # how to log in (again)
 
 
 class StatusCounts(BaseModel):
@@ -200,7 +202,9 @@ def _status_counts(db: Session, *where: object) -> StatusCounts:
     return StatusCounts(**counts)
 
 
-def build_home(db: Session, settings: Settings, now: datetime | None = None) -> HomeStatus:
+def build_home(
+    db: Session, settings: Settings, now: datetime | None = None, data_dir: Path | None = None
+) -> HomeStatus:
     """Facts only. Platform modes are dry-run until review/auto exist (Phase C / E)."""
     from backend.core.config import live_execution_block
 
@@ -208,9 +212,19 @@ def build_home(db: Session, settings: Settings, now: datetime | None = None) -> 
     local_now = (now or datetime.now(UTC)).astimezone(zone)
     start_of_day = datetime.combine(local_now.date(), time.min, tzinfo=zone)
     block = live_execution_block(settings)
-    later = "Naukri comes in Phase C, LinkedIn in Phase D."
+    from integrations.platforms.base import load_status
+
+    logins = load_status(data_dir or REPO_ROOT / "data")
+    later = "LinkedIn comes in Phase D."
     platforms = [
-        PlatformMode(platform="naukri", mode="dry-run", built=False, note=later, login=None),
+        PlatformMode(
+            platform="naukri",
+            mode="dry-run",
+            built=False,
+            note="Login check works; search and apply come after the live login test.",
+            login=(logins.get("naukri") or {}).get("state", "never"),
+            login_command="python -m backend.scripts.login naukri --test-search",
+        ),
         PlatformMode(platform="linkedin", mode="dry-run", built=False, note=later, login=None),
         PlatformMode(
             platform="company_site",
