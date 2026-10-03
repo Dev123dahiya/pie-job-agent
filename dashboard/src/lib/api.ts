@@ -1,4 +1,5 @@
 import { type LogPage, logsQueryString } from "./logs";
+import type { ManualJob } from "@/components/manual/ManualList";
 import type { FailedList } from "./failed";
 import type { NeedsInput } from "./needsInput";
 import type {
@@ -194,4 +195,9 @@ export function getNeedsInput(fetchImpl?: typeof fetch) {
 /** Failed jobs with error, stage and screenshot. Retried only by the user. */
 export function getFailedJobs(fetchImpl?: typeof fetch) {
   return fetched<FailedList>("/api/jobs/failed", fetchImpl);
+}
+
+/** Jobs the user applies to themselves. */
+export function getManualJobs(fetchImpl?: typeof fetch) {
+  return fetched<{ items: ManualJob[]; total: number }>("/api/jobs/manual", fetchImpl);
 }

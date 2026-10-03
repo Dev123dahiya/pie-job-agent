@@ -31,6 +31,7 @@ _BY_STATE: dict[JS, UserStatus] = {
     JS.WITHDRAWN: "skipped",
     JS.BLOCKED_NEEDS_USER: "needs_input",
     JS.FAILED: "failed",
+    JS.MANUAL_APPLY: "manual",
 }
 
 

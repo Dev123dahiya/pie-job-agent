@@ -91,7 +91,7 @@ def test_home_counts_six_statuses_and_never_claims_live(db: Session) -> None:
     assert total == 10  # every mock job is counted exactly once
     assert home.all_time.applied >= 1 and home.all_time.manual == 0
     assert home.quick_links.needs_input == home.all_time.needs_input
-    assert home.quick_links.manual is None and home.quick_links.waiting_for_review is None
+    assert home.quick_links.manual == 0 and home.quick_links.waiting_for_review is None
     # DEVELOPMENT_MODE wins over the live flag: no live banner.
     assert home.live_possible is False and "DEVELOPMENT_MODE" in home.live_note
     assert [p.platform for p in home.platforms] == ["naukri", "linkedin", "company_site"]

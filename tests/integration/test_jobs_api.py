@@ -227,3 +227,44 @@ def test_skip_and_move_to_shortlist(client: TestClient, discovered: str) -> None
         assert res.status_code == 409
     missing = client.post("/api/jobs/00000000-0000-0000-0000-000000000000/skip")
     assert missing.status_code == 404
+
+
+# --- C9: Manual apply list ------------------------------------------------------------------
+
+
+def test_manual_apply_list(client: TestClient, discovered: str) -> None:
+    client.post("/api/jobs/analyze-shortlist", json={"limit": 50})
+    shortlisted = client.get("/api/jobs/shortlisted").json()["items"]
+    a, b = shortlisted[0]["id"], shortlisted[1]["id"]
+    discovered_only = client.get("/api/jobs", params={"status": "DISCOVERED"}).json()["items"]
+
+    for job_id in (a, b):
+        res = client.post(f"/api/jobs/{job_id}/manual")
+        assert res.status_code == 200 and res.json()["status"] == "MANUAL_APPLY"
+    listed = client.get("/api/jobs/manual").json()
+    assert listed["total"] == 2
+    item = next(i for i in listed["items"] if i["job_id"] == a)
+    assert item["url"].startswith("http") and item["match_score"] is not None
+    assert item["reason"] == "You chose to apply yourself"
+    detail = client.get(f"/api/jobs/{a}").json()
+    assert detail["user_status"] == "manual"
+    assert client.get("/api/dashboard/home").json()["quick_links"]["manual"] == 2
+
+    applied = client.post(f"/api/jobs/{a}/manual/applied")
+    assert applied.status_code == 200 and applied.json()["status"] == "SUBMITTED"
+    detail = client.get(f"/api/jobs/{a}").json()
+    assert detail["user_status"] == "applied" and detail["application"]["status"] == "APPLIED"
+    assert detail["timeline"][-1]["event_type"] == "applied_manually_by_user"
+    # Not PIE's submission: today's daily limits are untouched.
+    limits = {r["platform"]: r["used"] for r in client.get("/api/dashboard/limits").json()}
+    assert limits["total"] == 0
+
+    skipped = client.post(f"/api/jobs/{b}/manual/skip")
+    assert skipped.status_code == 200 and skipped.json()["status"] == "REJECTED_BY_AGENT"
+    assert client.get("/api/jobs/manual").json()["total"] == 0
+    # Only manual-list jobs can be marked applied; only eligible jobs can be moved there.
+    assert client.post(f"/api/jobs/{b}/manual/applied").status_code == 409
+    if discovered_only:
+        assert client.post(f"/api/jobs/{discovered_only[0]['id']}/manual").status_code == 409
+    missing = "00000000-0000-0000-0000-000000000000"
+    assert client.post(f"/api/jobs/{missing}/manual").status_code == 404

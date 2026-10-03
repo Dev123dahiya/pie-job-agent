@@ -4,10 +4,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AutomationNotice } from "@/components/jobs/AutomationNotice";
-import { AnalyzeJobButton, ShortlistJobButton, SkipJobButton } from "@/components/jobs/JobActions";
+import { AnalyzeJobButton, ManualApplyButton, ShortlistJobButton, SkipJobButton } from "@/components/jobs/JobActions";
 import { APPLY_TYPE_LABEL, PLATFORM_LABEL, STATUS_LABEL } from "@/lib/home";
 import { ResumeReadinessCard } from "@/components/jobs/ResumeReadinessCard";
-import { ANALYZABLE_STATES, SHORTLISTABLE_STATES, SKIPPABLE_STATES } from "@/lib/jobs";
+import { ANALYZABLE_STATES, MANUAL_ELIGIBLE_STATES, SHORTLISTABLE_STATES, SKIPPABLE_STATES } from "@/lib/jobs";
 import { DIMENSIONS, LEVEL_STYLE } from "@/components/jobs/MatchDimensions";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -220,6 +220,7 @@ export default async function JobPage(props: PageProps<"/jobs/[id]">) {
           )}
           {SHORTLISTABLE_STATES.has(job.status) && <ShortlistJobButton jobId={job.id} />}
           {SKIPPABLE_STATES.has(job.status) && <SkipJobButton jobId={job.id} />}
+          {MANUAL_ELIGIBLE_STATES.has(job.status) && <ManualApplyButton jobId={job.id} />}
         </div>
       </div>
 

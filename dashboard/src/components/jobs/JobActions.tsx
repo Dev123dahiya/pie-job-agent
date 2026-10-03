@@ -290,3 +290,28 @@ export function ShortlistJobButton({ jobId }: { jobId: string }) {
     </div>
   );
 }
+
+/** Move the job to the manual-apply list: the user applies themselves; PIE only tracks it. */
+export function ManualApplyButton({ jobId }: { jobId: string }) {
+  const router = useRouter();
+  const { state, run } = useAction();
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <ActionButton
+        icon={FileText}
+        busy={state.busy}
+        onClick={() =>
+          run(async () => {
+            const { ok, data } = await post(`jobs/${jobId}/manual`, {});
+            if (!ok) throw new Error(detail(data, "Could not move this job"));
+            router.refresh();
+            return "On your manual-apply list";
+          })
+        }
+      >
+        I&apos;ll apply myself
+      </ActionButton>
+      <Message state={state} />
+    </div>
+  );
+}

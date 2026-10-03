@@ -163,7 +163,7 @@ class StatusCounts(BaseModel):
 class QuickLinks(BaseModel):
     needs_input: int
     failed: int
-    manual: int | None  # None: available after Phase C
+    manual: int | None
     waiting_for_review: int | None  # None: available after Phase C
 
 
@@ -223,7 +223,7 @@ def build_home(db: Session, settings: Settings, now: datetime | None = None) -> 
         quick_links=QuickLinks(
             needs_input=all_time.needs_input,
             failed=all_time.failed,
-            manual=None,
+            manual=all_time.manual,
             waiting_for_review=None,
         ),
     )

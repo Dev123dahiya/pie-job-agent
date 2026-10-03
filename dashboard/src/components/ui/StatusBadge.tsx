@@ -55,6 +55,7 @@ const STATUS_TONE: Record<string, Tone> = {
   READY_TO_APPLY: "info",
   APPLICATION_IN_PROGRESS: "info",
   BLOCKED_NEEDS_USER: "warning",
+  MANUAL_APPLY: "warning",
   NEEDS_USER_INPUT: "warning",
   DRAFT: "neutral",
   // Browser execution (Phase 5)

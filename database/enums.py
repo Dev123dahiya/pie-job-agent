@@ -25,6 +25,8 @@ class JobPipelineState(StrEnum):
     FAILED = "FAILED"
     DUPLICATE = "DUPLICATE"
     WITHDRAWN = "WITHDRAWN"
+    # The user applies themselves (an unsupported site, or the user's choice). PIE only tracks it.
+    MANUAL_APPLY = "MANUAL_APPLY"
 
 
 class ApplicationStatus(StrEnum):

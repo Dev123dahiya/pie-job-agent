@@ -512,7 +512,7 @@ export interface HomeStatus {
   quick_links: {
     needs_input: number;
     failed: number;
-    manual: number | null;
+    manual: number;
     waiting_for_review: number | null;
   };
 }

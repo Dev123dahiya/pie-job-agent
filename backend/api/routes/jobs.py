@@ -57,6 +57,13 @@ from backend.services.discovery import DiscoveryService, create_discovery_run
 from backend.services.failed_jobs import RetryError, list_failed_jobs, retry_failed_job
 from backend.services.freshness import freshness_filter
 from backend.services.job_actions import JobActionError, shortlist_job, skip_job
+from backend.services.manual_apply import (
+    ManualApplyError,
+    list_manual,
+    mark_applied,
+    send_to_manual,
+    skip_manual,
+)
 from backend.services.platforms import FORM_SOURCES, ApplyType, Platform
 from backend.services.readiness import evaluate_readiness
 from backend.services.resumes import locate_master_resume
@@ -320,6 +327,37 @@ def failed_jobs(db: DB, limit: int = Query(100, ge=1, le=500)) -> dict[str, Any]
     PIE never retries these by itself (REQUIREMENTS 12)."""
     items = [f.as_dict() for f in list_failed_jobs(db, limit=limit)]
     return {"items": items, "total": len(items)}
+
+
+@router.get("/manual")
+def manual_list(db: DB) -> dict[str, Any]:
+    """Jobs the user applies to themselves, with the link to apply."""
+    items = [m.as_dict() for m in list_manual(db)]
+    return {"items": items, "total": len(items)}
+
+
+def _manual(fn: Any, db: Session, job_id: uuid.UUID) -> dict[str, Any]:
+    try:
+        job = fn(db, job_id)
+    except ManualApplyError as exc:
+        raise HTTPException(404 if "No job" in str(exc) else 409, str(exc)) from exc
+    return {"job_id": str(job.id), "status": job.pipeline_state.value}
+
+
+@router.post("/{job_id}/manual")
+def move_to_manual(job_id: uuid.UUID, db: DB) -> dict[str, Any]:
+    """The user will apply to this job themselves. PIE stops working on it and only tracks it."""
+    return _manual(send_to_manual, db, job_id)
+
+
+@router.post("/{job_id}/manual/applied")
+def manual_applied(job_id: uuid.UUID, db: DB) -> dict[str, Any]:
+    return _manual(mark_applied, db, job_id)
+
+
+@router.post("/{job_id}/manual/skip")
+def manual_skip(job_id: uuid.UUID, db: DB) -> dict[str, Any]:
+    return _manual(skip_manual, db, job_id)
 
 
 class RetryBatchIn(BaseModel):

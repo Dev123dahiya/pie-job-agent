@@ -58,9 +58,10 @@ describe("Home: live banner and modes", () => {
 
 describe("Home: quick links", () => {
   it("links real counts and labels unbuilt features instead of showing 0", () => {
-    const links: HomeStatus["quick_links"] = { needs_input: 2, failed: 1, manual: null, waiting_for_review: null };
+    const links: HomeStatus["quick_links"] = { needs_input: 2, failed: 1, manual: 0, waiting_for_review: null };
     render(<QuickLinks links={links} />);
+    expect(screen.getByRole("link", { name: /Manual apply/ })).toHaveAttribute("href", "/manual");
     expect(screen.getByRole("link", { name: /Needs my input/ })).toHaveAttribute("href", "/needs-input");
-    expect(screen.getAllByText("Available after Phase C")).toHaveLength(2);
+    expect(screen.getAllByText("Available after Phase C")).toHaveLength(1); // review queue
   });
 });

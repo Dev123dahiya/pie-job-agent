@@ -5,7 +5,7 @@ import type { HomeStatus } from "@/lib/types";
 export function QuickLinks({ links }: { links: HomeStatus["quick_links"] }) {
   const items: { label: string; count: number | null; href: string }[] = [
     { label: "Needs my input", count: links.needs_input, href: "/needs-input" },
-    { label: "Manual apply", count: links.manual, href: "/jobs?status_group=manual" },
+    { label: "Manual apply", count: links.manual, href: "/manual" },
     { label: "Failed", count: links.failed, href: "/failed" },
     { label: "Waiting for review", count: links.waiting_for_review, href: "/jobs" },
   ];
