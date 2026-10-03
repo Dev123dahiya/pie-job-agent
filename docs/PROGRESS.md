@@ -26,7 +26,62 @@ of every step. No personal data here.
 | B4 | Failed jobs are never re-scored automatically | Done (approved) |
 | B5 | A resume linked to an in-progress or submitted application never changes | Done (committed, waiting for approval) |
 | B6 | Answers tool shows keys only, not values; key names match; whole-word "visa" | Done (committed, waiting for approval) |
-| B7+ | Daily limit enforcement, requirements.txt, user profile check (B10) | Not started |
+| B7 | Daily limits enforced in the backend (`config/automation.yaml`: total + per platform) | To do |
+| B8 | `requirements.txt` | To do |
+| B10 | Check `config/user_profile.yaml` is complete; match `config/job_sources.yaml` | Needs you: fill the profile |
+
+## To-do list (remaining work)
+
+"Needs you" marks steps that can't finish without something only you can do.
+
+### Dashboard phase (pages for existing data, REQUIREMENTS 19.4)
+
+- [ ] D1 Home: mode per platform + live warning banner, today vs daily limits, status counts,
+      login status per platform, last run + 10 recent events, quick links
+- [ ] D2 Jobs: search, sorting, all filters; detail page with dimensions, duplicates, actions
+- [ ] D3 Applications: filters; detail timeline from the audit log, locked resume badge, masked
+      answers, screenshots, errors
+- [ ] D4 Resumes: master + tailored versions, which job/application uses each, preview,
+      download, locked badge
+- [ ] D5 Logs: search, filters (level, run, platform, date), secrets redacted, download
+
+### Phase C: Naukri
+
+- [ ] C1 Common platform interface (login check, search_jobs, get_job_details, apply); one
+      selectors file per platform
+- [ ] C2 "Log in once" command with a persistent browser profile; expired session pauses the
+      platform. Needs you: log in to Naukri once (OTP)
+- [ ] C3 Naukri search from config (keywords, locations, experience, freshness, exclusions);
+      skip out-of-range experience before scoring; cross-site duplicate check
+- [ ] C4 Naukri direct apply (dry-run first); redirects go to the company-site flow or the
+      manual-apply list; step cap on multi-step forms
+- [ ] C5 Needs-my-input: save unanswered questions, answer once, reuse next time
+- [ ] C6 Review mode: wait for yes/no before submit
+- [ ] C7 Stop on daily limit or a platform quota/warning message
+- [ ] C8 Reliability: restart the browser after a freeze; clean up sessions of a dead run
+- [ ] C9 Pages: Review queue, Needs my input, Manual apply, Failed (retry), Runs (start/stop,
+      live progress, history), Settings (validated, backed up, diff shown)
+- [ ] C10 End-of-run summary. Needs you: a dry-run, then a review-mode run on Naukri
+
+### Phase D: LinkedIn Easy Apply
+
+- [ ] D-1 LinkedIn module behind the same interface (search + Easy Apply), limit 5/day.
+      Needs you: log in to LinkedIn once; a dry-run, then a review-mode run
+
+### Phase E: answers, models, auto mode
+
+- [ ] E1 Model per task in config (done right before the first analysis run, with a usage
+      estimate and a 50-job cap). Needs you: OK the estimate
+- [ ] E2 Claude answers other questions from resume/profile facts only; else needs-my-input
+- [ ] E3 Auto mode per platform, only after a successful dry-run and review run; confirmation.
+      Needs you: switch it on
+
+### Phase F: later items
+
+- [ ] F1 Gmail: detect replies, interview invites, rejections; update status. Needs you:
+      connect Gmail
+- [ ] F2 Emails page; Analytics page (per-day chart, funnels, score distribution, reply rates)
+- [ ] F3 More platforms (Indeed India, Instahyre, Foundit, Hirist, iimjobs)
 
 ## Decisions
 
