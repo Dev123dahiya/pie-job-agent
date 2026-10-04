@@ -49,6 +49,24 @@ describe("Start run form", () => {
   });
 });
 
+describe("Auto mode", () => {
+  it("is blocked until the platform unlocks it, then needs the AUTO phrase", () => {
+    const opts = options(true);
+    const site = opts.platforms[1];
+    site.auto = { platform: "company_site", unlocked: false, missing: ["one completed dry run"] };
+    site.auto_confirmation = { platform: "company_site", remaining: 10, phrase: "AUTO on company_site: up to 10 today" };
+    const { rerender } = render(<StartRunForm options={opts} busyRun={false} />);
+    fireEvent.click(screen.getByLabelText(/Auto \(live\)/));
+    expect(screen.getByText(/unlocks on this platform after one completed dry run/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Start run/ })).toBeDisabled();
+    site.auto = { platform: "company_site", unlocked: true, missing: [] };
+    rerender(<StartRunForm options={{ ...opts }} busyRun={false} />);
+    expect(screen.getByText("AUTO on company_site: up to 10 today")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Live confirmation"), { target: { value: "AUTO on company_site: up to 10 today" } });
+    expect(screen.getByRole("button", { name: /Start run/ })).toBeEnabled();
+  });
+});
+
 describe("Review queue", () => {
   const item: ReviewItem = {
     session_id: "s1", application_id: "a1", job_id: "j1", title: "Backend Engineer", company: "Acme",

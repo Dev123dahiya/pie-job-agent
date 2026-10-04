@@ -431,3 +431,25 @@ def good_resume(**overrides: Any) -> dict[str, Any]:
     }  # fmt: skip
     base.update(overrides)
     return base
+
+
+# --- Guard: tests must never change the real config files ---------------------------------
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _config_files_untouched() -> Iterator[None]:
+    """Fails the run if any test wrote into config/ (they must use temporary copies)."""
+    import hashlib
+
+    folder = Path(__file__).resolve().parents[1] / "config"
+
+    def snapshot() -> dict[str, str]:
+        return {
+            p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(folder.glob("*.yaml"))
+        }
+
+    before = snapshot()
+    yield
+    changed = [n for n, h in snapshot().items() if before.get(n) != h]
+    assert not changed, f"Tests changed real config files: {changed}"

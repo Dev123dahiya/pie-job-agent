@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 Step = Literal["discover", "analyze", "tailor", "apply"]
 STEPS: tuple[Step, ...] = ("discover", "analyze", "tailor", "apply")
-Mode = Literal["dry-run", "review"]
+Mode = Literal["dry-run", "review", "auto"]
 BUILT_PLATFORMS: frozenset[Platform] = frozenset({"company_site", "naukri", "linkedin"})
 MAX_ANALYSIS = 50  # agreed cap for one run
 
@@ -123,14 +123,17 @@ class Report:
         }
 
 
-def live_confirmation(db: Session, settings: Settings, platform: Platform) -> dict[str, Any]:
-    """What the user must confirm to start a review (live) run on one platform."""
+def live_confirmation(
+    db: Session, settings: Settings, platform: Platform, mode: str = "review"
+) -> dict[str, Any]:
+    """What the user must type to start a live (review or auto) run on one platform."""
     statuses = {s.platform: s for s in usage(db, settings.automation_path, settings.timezone)}
     remaining = min(statuses["total"].remaining, statuses[platform].remaining)
+    word = "AUTO" if mode == "auto" else "LIVE"
     return {
         "platform": platform,
         "remaining": remaining,
-        "phrase": f"LIVE on {platform}: up to {remaining} today",
+        "phrase": f"{word} on {platform}: up to {remaining} today",
     }
 
 
@@ -156,21 +159,35 @@ def start_pipeline(
                 f"Applying on {', '.join(missing)} is not built yet (Naukri: Phase C, "
                 "LinkedIn: Phase D). Choose company sites."
             )
-        if req.mode == "review":
+        if req.mode in ("review", "auto"):
             from backend.core.config import live_execution_block
 
             block = live_execution_block(settings)
             if block is not None:
                 raise PipelineError(block[1])
             if settings.browser_headless:
-                raise PipelineError("Review mode needs a visible browser: BROWSER_HEADLESS=false")
+                raise PipelineError(
+                    f"{req.mode} mode needs a visible browser: BROWSER_HEADLESS=false"
+                )
+            if len(req.platforms) != 1:
+                raise PipelineError("A live run works on one platform at a time")
             for platform in req.platforms:
-                expected = live_confirmation(db, settings, platform)
+                if req.mode == "auto":
+                    from backend.services.auto_mode import auto_status
+
+                    status = auto_status(db, platform)
+                    if not status["unlocked"]:
+                        raise PipelineError(
+                            f"Auto mode on {platform} unlocks after "
+                            f"{' and '.join(status['missing'])} (REQUIREMENTS 10)."
+                        )
+                expected = live_confirmation(db, settings, platform, req.mode)
                 if expected["remaining"] == 0:
                     raise PipelineError(f"No live applications left today on {platform}")
                 if confirmation != expected["phrase"]:
                     raise PipelineError(
-                        f'Review mode is live. Confirm by typing exactly: "{expected["phrase"]}"'
+                        f"{req.mode.capitalize()} mode is live. Confirm by typing exactly: "
+                        f'"{expected["phrase"]}"'
                     )
     ensure_no_active_run(db)
     run = AgentRun(
@@ -311,7 +328,8 @@ class PipelineService:
 
     def _apply(self, db: Session, run: AgentRun, log: RunLogger, req: PipelineRequest,
                deps: PipelineDeps, report: Report) -> bool:  # fmt: skip
-        live = req.mode == "review"
+        live = req.mode in ("review", "auto")
+        auto = req.mode == "auto"
         candidates = db.scalars(
             select(Job)
             .where(Job.pipeline_state == JobPipelineState.READY_TO_APPLY)
@@ -349,6 +367,8 @@ class PipelineService:
                 if outcome in ("blocked", "login_needed", "quota"):
                     report.failures.append(_failure("apply", job, f"Naukri: {outcome}"))
                     break
+                if auto and outcome == "waiting_for_review" and self._auto(db, deps, job, report):
+                    break
                 continue
             if platform_of(job) == "linkedin":
                 if deps.platform_browser is None:
@@ -374,6 +394,12 @@ class PipelineService:
                     report.failures.append(_failure("apply", job, f"LinkedIn: {li['error']}"))
                 if li["outcome"] == "quota":
                     break  # a quota or warning message: stop on LinkedIn at once
+                if (
+                    auto
+                    and li["outcome"] == "waiting_for_review"
+                    and self._auto(db, deps, job, report)
+                ):
+                    break
                 continue
             ctx = svc.ExecContext(
                 db=db,
@@ -399,10 +425,25 @@ class PipelineService:
                 report.add("needs_input")
             elif live and out.get("state") == "READY_FOR_SUBMISSION":
                 report.add("waiting_for_review")
+                if auto and self._auto(db, deps, job, report):
+                    break
             elif out.get("dry_run_complete"):
                 report.add("dry_run_complete")
             db.commit()
         return False
+
+    def _auto(self, db: Session, deps: PipelineDeps, job: Job, report: Report) -> bool:
+        """Auto mode: submit the job just prepared. True = stop applying (limit / quota)."""
+        from backend.services.auto_mode import auto_submit
+
+        try:
+            out = auto_submit(db, deps.settings, deps.profile, job, deps.browser,
+                              deps.platform_browser)  # fmt: skip
+        except svc.ExecutionError as exc:
+            report.failures.append(_failure("auto_submit", job, f"{exc.code}: {exc.message}"))
+            return exc.code in STOP_APPLYING
+        report.add("auto_submitted" if out.get("submitted") else "auto_not_confirmed")
+        return out.get("outcome") == "QUOTA"
 
     def _finish(
         self, db: Session, run: AgentRun, log: RunLogger, report: Report, stopped: bool

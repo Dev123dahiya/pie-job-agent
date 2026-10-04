@@ -24,6 +24,7 @@ from backend.api.deps import (
 )
 from backend.core.config import Settings, get_settings, live_execution_block
 from backend.core.profile import UserProfile
+from backend.services.auto_mode import auto_status
 from backend.services.daily import build_daily_plan
 from backend.services.pipeline import (
     BUILT_PLATFORMS,
@@ -100,10 +101,12 @@ def options(db: DB, settings: SettingsDep) -> dict[str, Any]:
                 "platform": p,
                 "apply_supported": p in BUILT_PLATFORMS,
                 "review_confirmation": live_confirmation(db, settings, p),
+                "auto_confirmation": live_confirmation(db, settings, p, "auto"),
+                "auto": auto_status(db, p),
             }
             for p in PLATFORMS
         ],
-        "modes": ["dry-run", "review"],
+        "modes": ["dry-run", "review", "auto"],
         "default_mode": "dry-run",
         "live_possible": block is None and not settings.browser_headless,
         "live_note": block[1]

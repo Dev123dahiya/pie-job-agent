@@ -77,7 +77,7 @@ after Phase C".
 - [x] E1 Model per task in config (config/automation.yaml models: scoring claude-sonnet-5-5, tailoring/answers claude-opus-5-5; both checked working in Claude Code 2026-10-04). Measured: one scoring call ~12 s, ~$0.035 API-equivalent; 50 jobs ~$1.75 equivalent, ~10 min. Was: Model per task in config (done right before the first analysis run, with a usage
       estimate and a 50-job cap). Needs you: OK the estimate
 - [ ] E2 Claude answers other questions from resume/profile facts only; else needs-my-input
-- [ ] E3 Auto mode per platform, only after a successful dry-run and review run; confirmation.
+- [x] E3 Auto mode per platform (built 2026-10-04: Runs page "Auto"; unlocks per platform after one completed dry run + one review application the user approved; typed "AUTO on <platform>: up to N today"; same submit checks), only after a successful dry-run and review run; confirmation.
       Needs you: switch it on
 
 ### Phase F: later items

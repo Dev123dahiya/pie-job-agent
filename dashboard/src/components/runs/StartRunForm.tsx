@@ -5,7 +5,15 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PLATFORM_LABEL } from "@/lib/home";
 import { RUN_STARTED_EVENT } from "@/lib/jobs";
-import { STEP_LABEL, reviewPhrases, type Platform, type RunMode, type RunOptions, type RunStep } from "@/lib/runs";
+import {
+  STEP_LABEL,
+  autoBlocker,
+  reviewPhrases,
+  type Platform,
+  type RunMode,
+  type RunOptions,
+  type RunStep,
+} from "@/lib/runs";
 
 /** Start a run. Dry run is always pre-selected; review (live) needs the typed confirmation. */
 export function StartRunForm({ options, busyRun }: { options: RunOptions; busyRun: boolean }) {
@@ -21,12 +29,13 @@ export function StartRunForm({ options, busyRun }: { options: RunOptions; busyRu
     error: false,
   });
 
-  const phrases = reviewPhrases(options, platforms);
-  const needsPhrase = mode === "review" && steps.includes("apply");
+  const phrases = reviewPhrases(options, platforms, mode);
+  const needsPhrase = mode !== "dry-run" && steps.includes("apply");
+  const autoBlocked = autoBlocker(options, platforms);
   const phraseOk = !needsPhrase || (phrases.length === 1 && typed.trim() === phrases[0]);
   const unsupported =
     steps.includes("apply") && options.platforms.some((p) => platforms.includes(p.platform) && !p.apply_supported);
-  const canStart = steps.length > 0 && platforms.length > 0 && phraseOk && !unsupported && !busyRun && !state.busy;
+  const canStart = steps.length > 0 && platforms.length > 0 && phraseOk && !unsupported && !busyRun && !state.busy && !(mode === "auto" && autoBlocked !== null);
 
   const toggle = <T,>(list: T[], value: T, set: (v: T[]) => void) =>
     set(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
@@ -118,14 +127,28 @@ export function StartRunForm({ options, busyRun }: { options: RunOptions; busyRu
           />
           Review (live): prepare each form, then wait for your yes/no
         </label>
+        <label className="flex items-center gap-2 text-sm text-ink">
+          <input
+            type="radio"
+            name="mode"
+            checked={mode === "auto"}
+            disabled={!options.live_possible}
+            onChange={() => setMode("auto")}
+          />
+          Auto (live): fill and submit without asking each time
+        </label>
+        {mode === "auto" && autoBlocked && <p className="text-xs text-critical">{autoBlocked}</p>}
         {!options.live_possible && options.live_note && <p className="text-xs text-ink-3">{options.live_note}</p>}
-        <p className="text-xs text-ink-3">Auto mode (submit without asking) comes in Phase E.</p>
+        <p className="text-xs text-ink-3">
+          Auto still stops at daily limits and site warnings, and pauses on questions PIE cannot answer truthfully.
+        </p>
       </fieldset>
 
       {needsPhrase && (
         <div role="alert" className="flex flex-col gap-2 rounded-xl border-2 border-critical bg-critical/10 p-3">
           <p className="flex items-center gap-2 text-sm font-bold text-critical">
-            <OctagonAlert aria-hidden className="size-4" /> This is a LIVE run
+            <OctagonAlert aria-hidden className="size-4" />{" "}
+            {mode === "auto" ? "This is a FULLY AUTOMATIC live run: nothing asks you before submitting" : "This is a LIVE run"}
           </p>
           {phrases.length === 1 ? (
             <>

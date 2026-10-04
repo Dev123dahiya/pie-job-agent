@@ -3184,3 +3184,86 @@ def test_linkedin_step_buttons_with_long_labels_are_found(
     run = _li_run(client)
     assert run["report"]["counts"] == {"linkedin_dry_run_complete": 1}, run["report"]
     assert job_state(db, job_id) is S.READY_TO_APPLY and li_site.submissions == []
+
+
+# --- E3: auto mode (submit without a per-application "yes"), gated per platform -----------
+
+
+def _phrase(client: Any, platform: str, kind: str) -> str:
+    opts = client.get("/api/runs/options").json()
+    return str(next(p for p in opts["platforms"] if p["platform"] == platform)[kind]["phrase"])
+
+
+def test_auto_mode_unlocks_after_a_dry_run_and_an_approved_review(
+    client: Any,
+    api: Any,
+    db: Session,
+    li_job: Any,
+    li_site: Any,
+    live_settings: Settings,
+    tmp_path: Path,
+) -> None:
+    first, second = li_job("normal"), li_job("aria")
+    api["settings"] = live_settings
+    status = lambda: next(  # noqa: E731
+        p
+        for p in client.get("/api/runs/options").json()["platforms"]
+        if p["platform"] == "linkedin"
+    )["auto"]
+    assert status()["unlocked"] is False and len(status()["missing"]) == 2
+    refused = _start(client, steps=["apply"], platforms=["linkedin"], mode="auto",
+                     confirmation=_phrase(client, "linkedin", "auto_confirmation"))  # fmt: skip
+    assert refused.status_code == 422 and "unlocks after" in refused.json()["detail"]
+
+    # 1. a dry run (both jobs), 2. one application approved by the user in review mode
+    api["settings"] = live_settings.model_copy(update={"development_mode": True})
+    _li_run(client)
+    api["settings"] = live_settings
+    assert status()["missing"] == ["one application you approved in review mode"]
+    _li_run(client, mode="review", confirmation=_phrase(client, "linkedin", "review_confirmation"))
+    [item] = [i for i in client.get("/api/review").json()["items"] if i["job_id"] == str(first)]
+    client.post(f"/api/review/{item['session_id']}/approve",
+                json={"statement": item["confirmation_statement"]})  # fmt: skip
+    # the second job also waits in the review queue from that run: reject it to requeue
+    for other in client.get("/api/review").json()["items"]:
+        client.post(f"/api/review/{other['session_id']}/reject")
+    db.query(Job).filter(Job.id == second).update({"pipeline_state": S.READY_TO_APPLY})
+    db.commit()
+    assert status()["unlocked"] is True
+
+    run = _li_run(
+        client, mode="auto", confirmation=_phrase(client, "linkedin", "auto_confirmation")
+    )
+    assert run["report"]["counts"].get("auto_submitted") == 1, run["report"]
+    assert job_state(db, second) is S.SUBMITTED  # no "yes" from the user for this one
+    assert li_site.submissions.count("aria") == 1
+    session = db.scalars(
+        select(BrowserSession).where(
+            BrowserSession.job_id == second, BrowserSession.state == B.SUBMITTED
+        )
+    ).one()
+    assert (session.user_confirmation or "").startswith("AUTO MODE")
+
+
+def test_auto_mode_still_obeys_the_daily_limit(
+    client: Any,
+    api: Any,
+    db: Session,
+    li_job: Any,
+    li_site: Any,
+    live_settings: Settings,
+    tmp_path: Path,
+) -> None:
+    from backend.services import auto_mode
+
+    li_job("normal")
+    api["settings"] = with_limits(live_settings, tmp_path, 10, 0)  # a temporary file, never config/
+    original = auto_mode.auto_status
+    auto_mode.auto_status = lambda db, p: {"platform": p, "unlocked": True, "missing": []}  # type: ignore[assignment]
+    try:
+        res = _start(client, steps=["apply"], platforms=["linkedin"], mode="auto",
+                     confirmation="AUTO on linkedin: up to 0 today")  # fmt: skip
+    finally:
+        auto_mode.auto_status = original  # type: ignore[assignment]
+    assert res.status_code == 422 and "No live applications left today" in res.json()["detail"]
+    assert li_site.submissions == []

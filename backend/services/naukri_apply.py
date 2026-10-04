@@ -78,6 +78,13 @@ def prepare(
     apply_text = buttons.get(naukri.APPLY_BUTTON.lstrip("#"))
     if dry_run:
         if apply_text is not None and apply_text.lower() == "apply":
+            db.add(
+                ApplicationEvent(
+                    job_id=job.id, application_id=app.id, event_type="naukri_dry_run_checked",
+                    source=EventSource.SYSTEM, reason="Dry run: has Naukri's Apply button",
+                )
+            )  # fmt: skip
+            db.commit()
             return "would_wait_for_review"
         if apply_text is not None and apply_text.lower().startswith("applied"):
             return "would_skip_already_applied"

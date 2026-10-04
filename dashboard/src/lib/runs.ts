@@ -1,5 +1,5 @@
 export type RunStep = "discover" | "analyze" | "tailor" | "apply";
-export type RunMode = "dry-run" | "review";
+export type RunMode = "dry-run" | "review" | "auto";
 export type Platform = "naukri" | "linkedin" | "company_site";
 
 export type RunOptions = {
@@ -8,6 +8,8 @@ export type RunOptions = {
     platform: Platform;
     apply_supported: boolean;
     review_confirmation: { platform: Platform; remaining: number; phrase: string };
+    auto_confirmation?: { platform: Platform; remaining: number; phrase: string };
+    auto?: { platform: Platform; unlocked: boolean; missing: string[] };
   }[];
   modes: RunMode[];
   default_mode: RunMode;
@@ -48,8 +50,18 @@ export const STEP_LABEL: Record<RunStep, string> = {
 };
 
 /** Review mode is live: the exact phrase the backend expects for each chosen platform. */
-export function reviewPhrases(options: RunOptions, platforms: Platform[]): string[] {
-  return options.platforms.filter((p) => platforms.includes(p.platform)).map((p) => p.review_confirmation.phrase);
+export function reviewPhrases(options: RunOptions, platforms: Platform[], mode: RunMode = "review"): string[] {
+  return options.platforms
+    .filter((p) => platforms.includes(p.platform))
+    .map((p) => (mode === "auto" ? p.auto_confirmation?.phrase : p.review_confirmation.phrase) ?? "");
+}
+
+/** Auto mode is usable only on ONE platform that has unlocked it (REQUIREMENTS 10). */
+export function autoBlocker(options: RunOptions, platforms: Platform[]): string | null {
+  if (platforms.length !== 1) return "Choose exactly one platform for auto mode.";
+  const p = options.platforms.find((x) => x.platform === platforms[0]);
+  if (!p?.auto || p.auto.unlocked) return null;
+  return `Auto unlocks on this platform after ${p.auto.missing.join(" and ")}.`;
 }
 
 export type ReviewItem = {
