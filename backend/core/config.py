@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     # effect with DEVELOPMENT_MODE=false (see live_execution_block) and every submission also
     # needs the user's explicit per-application confirmation and a visible browser.
     external_live_enabled: bool = False
+    # The browser of every PIE session (login script included): "chrome", "msedge", or
     # auto -> Playwright's bundled Chromium, else installed Microsoft Edge, else Google Chrome.
     browser_channel: str = "auto"
     # Must be false for any session that may need you (CAPTCHA, OTP, login...) and for LIVE.

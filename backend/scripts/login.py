@@ -16,7 +16,8 @@ import argparse
 import sys
 from typing import Any
 
-from backend.core.config import REPO_ROOT
+from backend.core.config import REPO_ROOT, get_settings
+from integrations.browser.manager import launch_channels
 from integrations.platforms.base import LoginCheck, classify_page, save_status
 from integrations.platforms.instahyre import selectors as instahyre
 from integrations.platforms.linkedin import selectors as linkedin
@@ -33,7 +34,8 @@ def _open(platform: str) -> tuple[Any, Any, Any]:
     profile = DATA_DIR / "browser" / platform
     profile.mkdir(parents=True, exist_ok=True)
     last: Exception | None = None
-    for channel in ("msedge", "chrome", None):
+    # The same browser as every other PIE session (BROWSER_CHANNEL).
+    for channel in launch_channels(get_settings().browser_channel):
         kwargs: dict[str, Any] = {"headless": False}
         if channel:
             kwargs["channel"] = channel

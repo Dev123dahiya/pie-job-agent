@@ -27,6 +27,15 @@ from integrations.browser.dom import COMBOBOX_VALUE, EXTRACT_FORM, FIND_PANEL
 from integrations.browser.signals import domain_of, redact_url
 
 logger = logging.getLogger(__name__)
+
+
+def launch_channels(channel: str) -> list[str | None]:
+    """Browsers to try, in order, for the BROWSER_CHANNEL setting. A named browser (e.g.
+    "chrome") is the only one tried: PIE never silently falls back to another browser.
+    "auto" = Playwright's bundled Chromium, else Microsoft Edge, else Google Chrome."""
+    return [None, "msedge", "chrome"] if channel == "auto" else [channel]
+
+
 T = TypeVar("T")
 
 # Fixed page scripts for reading search results; their only input is a selectors-file spec.
@@ -213,7 +222,7 @@ class BrowserManager:
 
         self._w.pw = sync_playwright().start()
         chromium = self._w.pw.chromium
-        channels = [None, "msedge", "chrome"] if self.channel == "auto" else [self.channel]
+        channels = launch_channels(self.channel)
         last: Exception | None = None
         for ch in channels:
             kwargs: dict[str, Any] = {"headless": self.headless}

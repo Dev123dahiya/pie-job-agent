@@ -167,6 +167,10 @@ after Phase C".
   "Applied", recorded as sent. Auto mode now unlocked on Naukri too. Fix: wait up to 20 s
   for the "Applied" button and trust it. TODO: answer Naukri's question chat (needs one
   live look at a real chat first).
+- 2026-10-04 Browser: user wants Google Chrome for every session. `BROWSER_CHANNEL=chrome` in
+  .env; the login script now follows that setting (it tried Edge first before). A named
+  browser is the only one tried. Edge-made profiles backed up to data/backups/browser-edge-*;
+  Naukri + LinkedIn logins still valid in Chrome.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 
