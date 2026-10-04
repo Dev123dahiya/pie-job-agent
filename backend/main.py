@@ -93,13 +93,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 def daily_scheduler(settings: Settings) -> DailyScheduler:
-    """The in-process daily discovery + analysis schedule (see backend.services.daily)."""
+    """The in-process daily schedule: discovery + analysis (backend.services.daily), then
+    auto-apply when DAILY_AUTO_APPLY is on (backend.services.daily_auto)."""
     factory = get_session_factory()
+
+    def trigger() -> None:
+        run_daily(factory, build_daily_plan(settings), "scheduled")
+        if settings.daily_auto_apply:
+            from agent.tools import build_default_registry
+            from backend.core.profile import load_user_profile
+            from backend.services.daily_auto import run_daily_auto
+            from integrations.platforms.browser import get_platform_browser
+
+            try:
+                run_daily_auto(factory, settings, load_user_profile(), build_default_registry(),
+                               lambda p: get_platform_browser(p, settings))  # fmt: skip
+            except Exception:
+                logger.exception("Daily auto-apply failed")
+
     return DailyScheduler(
         at=parse_run_time(settings.daily_run_time),
         tz=ZoneInfo(settings.timezone),
         factory=factory,
-        trigger=lambda: run_daily(factory, build_daily_plan(settings), "scheduled"),
+        trigger=trigger,
     )
 
 

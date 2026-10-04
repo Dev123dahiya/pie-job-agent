@@ -85,11 +85,15 @@ class Settings(BaseSettings):
     # --- Daily discovery + analysis (Phase 5.5) ---
     # Runs inside the API process (uvicorn backend.main:app) once a day at DAILY_RUN_TIME in
     # TIMEZONE; if the machine was off at that time, it runs on the next start that day.
-    # Discovery and analysis only: it never creates or submits applications.
+    # Discovery and analysis; it applies only when DAILY_AUTO_APPLY is on (below).
     daily_run_enabled: bool = True
     daily_run_time: str = "07:00"  # 24h HH:MM
     # Most fresh jobs one daily run sends to Claude (each analysis is one Claude call).
     daily_run_analysis_limit: int = 50
+    # After the daily run: AUTO-apply on every platform where auto mode is unlocked (live
+    # switches, limits and pauses as in any auto run). This is the user's standing
+    # confirmation in place of the typed phrase. Off unless the user turns it on.
+    daily_auto_apply: bool = False
 
     # Adzuna Jobs API (optional job source): your own free key from developer.adzuna.com.
     adzuna_app_id: str | None = None

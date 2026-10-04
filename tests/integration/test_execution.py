@@ -3303,3 +3303,65 @@ def test_linkedin_waits_for_a_slowly_loading_form(
     run = _li_run(client)
     assert run["report"]["counts"] == {"linkedin_dry_run_complete": 1}, run["report"]
     assert job_state(db, job_id) is S.READY_TO_APPLY and li_site.submissions == []
+
+
+def _shortlisted_naukri_job(db: Session) -> uuid.UUID:
+    job = Job(
+        source="naukri", source_job_id="041026000001", title="Python Developer",
+        url="https://www.naukri.com/job-listings-python-developer-acme-041026000001",
+        location="Gurugram", description="Python, FastAPI", posted_at=utcnow(),
+        pipeline_state=S.SHORTLISTED,
+    )  # fmt: skip
+    db.add(job)
+    db.commit()
+    return job.id
+
+
+def _daily_auto(session_factory: Any, settings: Settings, profile: UserProfile, fake: Any) -> Any:
+    from backend.services.daily_auto import run_daily_auto
+
+    return run_daily_auto(
+        session_factory, settings, profile, build_default_registry(), lambda platform: fake
+    )
+
+
+def test_daily_auto_apply_is_off_unless_turned_on(
+    db: Session, session_factory: Any, live_settings: Settings, exec_profile: UserProfile
+) -> None:
+    job_id = _shortlisted_naukri_job(db)
+    fake = FakeNaukri()
+    out = _daily_auto(session_factory, live_settings, exec_profile, fake)
+    assert out == {"skipped": "DAILY_AUTO_APPLY is off"} and fake.clicks == []
+    on_dev = live_settings.model_copy(update={"daily_auto_apply": True, "development_mode": True})
+    assert "skipped" in _daily_auto(session_factory, on_dev, exec_profile, fake)
+    assert fake.clicks == [] and job_state(db, job_id) is S.SHORTLISTED
+
+
+def test_daily_auto_apply_only_where_auto_is_unlocked(
+    db: Session,
+    session_factory: Any,
+    live_settings: Settings,
+    exec_profile: UserProfile,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.services import daily_auto
+
+    job_id = _shortlisted_naukri_job(db)
+    settings = live_settings.model_copy(update={"daily_auto_apply": True})
+    fake = FakeNaukri()
+    out = _daily_auto(session_factory, settings, exec_profile, fake)
+    assert out["naukri"]["skipped"] == "auto mode not unlocked" and fake.clicks == []
+
+    def naukri_only(db: Any, p: str) -> dict[str, Any]:
+        return {"platform": p, "unlocked": p == "naukri", "missing": []}
+
+    monkeypatch.setattr(daily_auto, "auto_status", naukri_only)
+    monkeypatch.setattr("backend.services.auto_mode.auto_status", naukri_only)
+    out = _daily_auto(session_factory, settings, exec_profile, fake)
+    assert out["linkedin"]["skipped"] == "auto mode not unlocked"
+    assert out["naukri"]["counts"].get("auto_submitted") == 1, out
+    db.expire_all()
+    assert len(fake.clicks) == 1 and job_state(db, job_id) is S.SUBMITTED
+    # Next day's run (same day here): nothing is applied twice.
+    again = _daily_auto(session_factory, settings, exec_profile, fake)
+    assert again["naukri"]["skipped"] == "nothing ready" and len(fake.clicks) == 1
