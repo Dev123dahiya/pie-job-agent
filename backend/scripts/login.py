@@ -4,6 +4,7 @@
     python -m backend.scripts.login naukri --check         # only re-check the saved session
     python -m backend.scripts.login naukri --test-search   # also try one search page
     python -m backend.scripts.login linkedin --test-search
+    python -m backend.scripts.login instahyre
 
 A normal, visible browser opens with PIE's own profile for that platform (data/browser/<name>/,
 git-ignored). You type your login and OTP yourself; PIE never sees or stores your password.
@@ -17,10 +18,11 @@ from typing import Any
 
 from backend.core.config import REPO_ROOT
 from integrations.platforms.base import LoginCheck, classify_page, save_status
+from integrations.platforms.instahyre import selectors as instahyre
 from integrations.platforms.linkedin import selectors as linkedin
 from integrations.platforms.naukri import selectors as naukri
 
-PLATFORMS: dict[str, Any] = {"naukri": naukri, "linkedin": linkedin}
+PLATFORMS: dict[str, Any] = {"naukri": naukri, "linkedin": linkedin, "instahyre": instahyre}
 DATA_DIR = REPO_ROOT / "data"
 
 
