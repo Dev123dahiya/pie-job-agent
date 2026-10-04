@@ -6,14 +6,19 @@
     python -m backend.scripts.login linkedin --test-search
     python -m backend.scripts.login instahyre
 
-A normal, visible browser opens with PIE's own profile for that platform (data/browser/<name>/,
-git-ignored). You type your login and OTP yourself; PIE never sees or stores your password.
+A plain, normal browser window (no automation attached, so "Sign in with Google" works)
+opens with PIE's own profile for that platform (data/browser/<name>/, git-ignored); close it
+when you are logged in, and PIE checks the login. You type your login and OTP yourself; PIE
+never sees or stores your password.
 Only the outcome (logged in / expired / blocked) is saved, for the dashboard. If the platform
 refuses PIE's browser, PIE reports it and stops: it never tries to disguise itself.
 """
 
 import argparse
+import os
+import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 from backend.core.config import REPO_ROOT, get_settings
@@ -48,6 +53,46 @@ def _open(platform: str) -> tuple[Any, Any, Any]:
     raise SystemExit(f"No browser could be opened: {last}")
 
 
+# A normal, installed browser for the login step (no automation attached), so "Sign in with
+# Google" works: Google refuses sign-in in a browser that automation software controls, and
+# PIE never hides that. Same profile folder, so PIE reuses the login afterwards.
+BROWSER_EXE = {
+    "chrome": [
+        r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+        r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+        r"%LocalAppData%\Google\Chrome\Application\chrome.exe",
+    ],
+    "msedge": [
+        r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
+        r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe",
+    ],
+}
+
+
+def browser_exe(channel: str) -> Path | None:
+    for raw in BROWSER_EXE.get(channel, []):
+        path = Path(os.path.expandvars(raw))
+        if path.is_file():
+            return path
+    return None
+
+
+def plain_browser_command(exe: Path, profile: Path, url: str) -> list[str]:
+    """A normal browser window on PIE's own profile folder: no automation flags, no
+    remote-debugging port, nothing that changes how the browser presents itself."""
+    return [str(exe), f"--user-data-dir={profile}", "--no-first-run", "--new-window", url]
+
+
+def _plain_login(platform: str, sel: Any, exe: Path) -> None:
+    profile = DATA_DIR / "browser" / platform
+    profile.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.Popen(plain_browser_command(exe, profile, sel.LOGIN_URL))  # noqa: S603
+    print(f"\nA normal browser window opened at the {sel.NAME} login page.")
+    print("Log in there yourself (Google sign-in, password or OTP). PIE does not see them.")
+    print("When you are logged in, CLOSE that Chrome window (all its tabs) to continue.")
+    proc.wait()
+
+
 def _check(page: Any, sel: Any, url: str) -> LoginCheck:
     response = page.goto(url, wait_until="domcontentloaded", timeout=45_000)
     page.wait_for_timeout(3000)
@@ -65,9 +110,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     sel = PLATFORMS[args.platform]
 
+    channel = get_settings().browser_channel
+    exe = browser_exe(channel)
+    plain = not args.check and exe is not None
+    if plain:
+        assert exe is not None
+        _plain_login(args.platform, sel, exe)
     pw, context, page = _open(args.platform)
     try:
-        if not args.check:
+        if not args.check and not plain:
             page.goto(sel.LOGIN_URL, wait_until="domcontentloaded", timeout=45_000)
             print(f"\nA browser window opened at the {sel.NAME} login page.")
             print("Log in there yourself (password and OTP). PIE does not see or store them.")
