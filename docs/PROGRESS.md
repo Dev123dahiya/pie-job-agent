@@ -152,6 +152,10 @@ after Phase C".
 - 2026-10-04 first LIVE LinkedIn dry run: the form is NOT in #interop-outlet (that holds
   messaging); the reader now starts from the "Apply to ..." heading. Second try: email and
   phone filled, then paused on a required "Phone country code" dropdown (no saved answer).
+- 2026-10-04 user answers saved (reusable): phone country code "India (+91)", "years of
+  Engineering experience" "1". Live LinkedIn dry run on "AI Engineer" COMPLETE: every step
+  filled up to "Submit application", then discarded; nothing sent. Auto on LinkedIn still
+  needs one review-mode application the user approves (live switches in .env).
 
 ## Environment notes
 
