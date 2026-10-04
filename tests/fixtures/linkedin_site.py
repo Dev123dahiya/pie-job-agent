@@ -19,6 +19,7 @@ PAGE = """<!doctype html><html><head><title>Job | LinkedIn</title></head><body>
 <h1>Python Developer</h1><p>Acme · Gurugram</p>
 <button aria-label="Easy Apply to this job" id="ea">Easy Apply</button>
 <div id="interop-outlet"></div>
+<div id="modal-outlet"></div>
 <script>
 const CASE = "%CASE%";
 const STEPS = [
@@ -40,13 +41,19 @@ const STEPS = [
   `<h3>Review your application</h3><p>Check everything before you submit.</p>`,
 ];
 let step = 0;
-const host = document.getElementById("interop-outlet");
+// As on the live site (2026-10-04): #interop-outlet's shadow root holds the messaging panel,
+// the Easy Apply form is drawn somewhere else.
+document.getElementById("interop-outlet").attachShadow({ mode: "open" }).innerHTML =
+  `<button>Messaging</button><input aria-label="Search messages">`;
+const host = document.getElementById("modal-outlet");
 const root = host.attachShadow({ mode: "open" });
 function render() {
   const last = step === STEPS.length - 1;
   const label = step === STEPS.length - 2 ? "Review" : "Next";
   const next = last ? `<button id="submit">Submit application</button>`
-    : `<button id="next">${label}</button>`;
+    : (CASE === "aria" && label === "Next"
+       ? `<button id="next" aria-label="Continue to next step">Next</button>`
+       : `<button id="next">${label}</button>`);
   root.innerHTML = `<div class="panel"><h2>Apply to Acme</h2>
     <button aria-label="Dismiss" id="dismiss">x</button>
     <form onsubmit="return false">${STEPS[step]}</form>

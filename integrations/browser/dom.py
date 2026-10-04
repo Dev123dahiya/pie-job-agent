@@ -2,7 +2,8 @@
 nothing from Claude, the user or a tool argument is ever evaluated.
 
 EXTRACT_FORM (argument: a field-id prefix for the frame, or {prefix, host} to read a form
-rendered inside an element's open shadow root, e.g. LinkedIn Easy Apply) describes the page's form controls
+inside an element's open shadow root, or {prefix, root} to read only inside one element, e.g.
+LinkedIn's Easy Apply panel) describes the page's form controls
 and tags each with a ``data-pie-field`` attribute so PIE can address it later. It returns
 labels, names, ids, autocomplete, placeholder, required-ness, options, the currently selected
 option label of dropdowns and whether a value is present - never typed values themselves.
@@ -16,8 +17,9 @@ EXTRACT_FORM = r"""
 (arg) => {
   // arg: the field-id prefix, or {prefix, host}: read the form inside host's (open) shadow root.
   const prefix = typeof arg === 'string' ? arg : arg.prefix;
-  const hostEl = typeof arg === 'string' ? null : document.querySelector(arg.host);
-  const doc = (hostEl && hostEl.shadowRoot) || document;
+  // arg.root: read only inside this element (e.g. the Easy Apply panel), wherever it is.
+  const hostEl = typeof arg === 'string' || !arg.host ? null : document.querySelector(arg.host);
+  const doc = (typeof arg !== 'string' && arg.root) || (hostEl && hostEl.shadowRoot) || document;
   const clean = (t, n = 300) => (t || '').replace(/\s+/g, ' ').trim().slice(0, n);
   const visible = (el) => {
     if ((el.getAttribute('type') || '').toLowerCase() === 'file') return true;
@@ -25,7 +27,8 @@ EXTRACT_FORM = r"""
     const r = el.getBoundingClientRect();
     return s.display !== 'none' && s.visibility !== 'hidden' && (r.width > 0 || r.height > 0);
   };
-  const byId = (id) => (id ? doc.getElementById(id) : null);
+  const byId = (id) => (!id ? null : doc.getElementById ? doc.getElementById(id)
+    : doc.querySelector(`#${CSS.escape(id)}`));
   const labelOf = (el) => {
     let t = '';
     if (el.id) {
@@ -215,5 +218,22 @@ COMBOBOX_VALUE = r"""
   const root = el.closest('[class*="select__control"], [class*="-control"], [data-combobox-root], [class*="select-shell"]') || el.parentElement?.parentElement || el.parentElement;
   const v = root ? root.querySelector('[class*="single-value"], [class*="singleValue"], [data-value-label]') : null;
   return v ? clean(v.getAttribute('data-value-label') || v.innerText) : '';
+}
+"""
+
+# From the "Apply to ..." heading, the nearest enclosing element that also holds a step button
+# (Next / Review / Submit application): the Easy Apply panel. Crosses shadow-root boundaries.
+FIND_PANEL = r"""
+(heading) => {
+  const STEP = /^(next|review|submit application)$/i;
+  const ARIA = /continue to next step|review your application|submit application/i;
+  const hasStep = (el) => [...el.querySelectorAll('button')].some((b) =>
+    STEP.test((b.innerText || '').trim()) || ARIA.test(b.getAttribute('aria-label') || ''));
+  let el = heading;
+  for (let i = 0; i < 15 && el; i++) {
+    el = el.parentElement || (el.getRootNode() && el.getRootNode().host) || null;
+    if (el && hasStep(el)) return el;
+  }
+  return heading.parentElement;
 }
 """

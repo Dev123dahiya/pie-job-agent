@@ -3175,3 +3175,12 @@ def test_linkedin_review_uploads_the_tailored_resume(
         json={"statement": item["confirmation_statement"]},
     )
     assert ok.json()["submitted"] is True and li_site.submissions[-1] == "normal"
+
+
+def test_linkedin_step_buttons_with_long_labels_are_found(
+    client: Any, api: Any, db: Session, li_job: Any, li_site: Any
+) -> None:
+    job_id = li_job("aria")  # "Next" carries aria-label "Continue to next step"
+    run = _li_run(client)
+    assert run["report"]["counts"] == {"linkedin_dry_run_complete": 1}, run["report"]
+    assert job_state(db, job_id) is S.READY_TO_APPLY and li_site.submissions == []

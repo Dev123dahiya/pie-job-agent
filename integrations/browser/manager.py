@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypeVar
 
-from integrations.browser.dom import COMBOBOX_VALUE, EXTRACT_FORM
+from integrations.browser.dom import COMBOBOX_VALUE, EXTRACT_FORM, FIND_PANEL
 from integrations.browser.signals import domain_of, redact_url
 
 logger = logging.getLogger(__name__)
@@ -630,15 +630,27 @@ class BrowserManager:
 
     # --- LinkedIn Easy Apply panel (a form drawn inside #interop-outlet's shadow root) --------
 
-    _PANEL_HOST = "#interop-outlet"
     _PANEL_STEP_BUTTONS = ("Next", "Review", "Back")  # the only buttons panel_click may press
+
+    # LinkedIn gives step buttons a visible text, sometimes also a longer aria-label.
+    _STEP_ARIA = {
+        "Next": "Continue to next step",
+        "Review": "Review your application",
+        "Submit application": "Submit application",
+    }
+
+    def _step_button(self, page: Any, text: str) -> Any:
+        by_text = page.locator("button").filter(has_text=re.compile(rf"^\s*{re.escape(text)}\s*$"))
+        aria = self._STEP_ARIA.get(text)
+        return by_text.or_(page.locator(f"button[aria-label='{aria}']")) if aria else by_text
 
     def _panel(self, live: _Live) -> dict[str, Any]:
         page = live.page
-        data = page.evaluate(EXTRACT_FORM, {"prefix": "f0_", "host": self._PANEL_HOST})
-        names = (*self._PANEL_STEP_BUTTONS, "Submit application")
-        buttons = [n for n in names if page.get_by_role("button", name=n, exact=True).count()]
         heading = page.locator("h2, h3").filter(has_text=re.compile(r"^\s*Apply to ")).first
+        root = heading.evaluate_handle(FIND_PANEL) if heading.count() else None
+        data = page.evaluate(EXTRACT_FORM, {"prefix": "f0_", "root": root})
+        names = (*self._PANEL_STEP_BUTTONS, "Submit application")
+        buttons = [n for n in names if self._step_button(page, n).count()]
         text = data["signals"]["ui_text"]
         return {
             "fields": data["fields"],
@@ -690,7 +702,7 @@ class BrowserManager:
 
         def op() -> dict[str, Any]:
             live = self._get(sid)
-            button = live.page.get_by_role("button", name=text, exact=True).first
+            button = self._step_button(live.page, text).first
             if button.count() == 0:
                 raise BrowserError("NOT_FOUND", f"No '{text}' button")
             button.click()
@@ -706,7 +718,7 @@ class BrowserManager:
             live = self._get(sid)
             if live.dry_run:
                 raise BrowserError("NOT_FOUND", "Dry-run sessions can never submit")
-            button = live.page.get_by_role("button", name="Submit application", exact=True)
+            button = self._step_button(live.page, "Submit application")
             if button.count() != 1:
                 raise BrowserError("NOT_FOUND", "Submit button not found")
             button.click()

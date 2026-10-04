@@ -149,6 +149,9 @@ after Phase C".
   unknown 0.5, weak 0); min_match_score 65. Re-checking saved analyses: 3 shortlisted.
   User asked for fully automatic applying (no "OK" per application): auto mode, gated per
   platform by REQUIREMENTS 10 (one successful dry run + one successful review application).
+- 2026-10-04 first LIVE LinkedIn dry run: the form is NOT in #interop-outlet (that holds
+  messaging); the reader now starts from the "Apply to ..." heading. Second try: email and
+  phone filled, then paused on a required "Phone country code" dropdown (no saved answer).
 
 ## Environment notes
 
