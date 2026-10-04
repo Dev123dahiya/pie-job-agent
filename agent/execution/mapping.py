@@ -211,6 +211,10 @@ def classify(field: dict[str, Any], job_location: str | None) -> tuple[str | Non
         return by_autocomplete[auto], f"autocomplete={auto}"
     if kind == "email" or re.search(r"e ?mail", text):
         return "email", "email"
+    # A phone COUNTRY CODE (LinkedIn: "Phone country code" dropdown) is its own answer: it
+    # must never receive the phone number itself.
+    if re.search(r"\b(country|dialing|dial)\s*code\b|\bcountry\s*calling\b", text):
+        return "phone_country_code", "phone country code"
     # "Mobile" / "Mobile no." is a phone number field, but a question about mobile apps or
     # mobile development must never receive the phone number.
     if kind == "tel" or re.search(

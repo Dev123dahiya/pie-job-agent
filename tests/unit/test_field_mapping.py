@@ -312,3 +312,16 @@ def test_keywords_match_whole_words_only(label: str, expected: str | None) -> No
 )
 def test_ctc_and_experience_questions(label: str, expected: str | None) -> None:
     assert classify(field(label), "Gurugram, India")[0] == expected
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("Phone country code", "phone_country_code"),
+        ("Country code", "phone_country_code"),
+        ("Mobile phone number", "phone"),
+        ("Phone", "phone"),
+    ],
+)
+def test_phone_country_code_never_gets_the_phone_number(label: str, expected: str) -> None:
+    assert classify(field(label), "Gurugram, India")[0] == expected
