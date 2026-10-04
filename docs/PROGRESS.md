@@ -156,6 +156,11 @@ after Phase C".
   Engineering experience" "1". Live LinkedIn dry run on "AI Engineer" COMPLETE: every step
   filled up to "Submit application", then discarded; nothing sent. Auto on LinkedIn still
   needs one review-mode application the user approves (live switches in .env).
+- 2026-10-04 FIRST REAL APPLICATION: LinkedIn Easy Apply to xhawk (AI Engineer), filled in
+  review mode, approved by the user in chat, LinkedIn confirmed it was sent. Auto mode is now
+  unlocked on LinkedIn (Naukri / company sites still locked). Live switches are ON in .env.
+- Tests no longer read the real .env (one failure printed the Adzuna key into a local test
+  log; the user was advised to regenerate it).
 
 ## Environment notes
 

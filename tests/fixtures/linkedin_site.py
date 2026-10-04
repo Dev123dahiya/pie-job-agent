@@ -77,7 +77,15 @@ function render() {
     };
   };
 }
-document.getElementById("ea").onclick = () => { step = 0; render(); };
+document.getElementById("ea").onclick = () => {
+  step = 0;
+  if (CASE === "slow") {  // like the live site: title and a spinner first, content later
+    root.innerHTML = `<div class="panel"><h2>Apply to Acme</h2><p>Loading...</p></div>`;
+    setTimeout(render, 2500);
+  } else {
+    render();
+  }
+};
 </script></body></html>"""
 
 

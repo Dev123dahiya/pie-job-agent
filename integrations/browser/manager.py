@@ -644,6 +644,21 @@ class BrowserManager:
         aria = self._STEP_ARIA.get(text)
         return by_text.or_(page.locator(f"button[aria-label='{aria}']")) if aria else by_text
 
+    def _wait_for_step(self, page: Any, timeout_ms: int = 20_000) -> None:
+        """LinkedIn draws the panel title first and its content later (a spinner meanwhile):
+        wait until a step button (Next / Review / Submit application) is there, or a
+        "sent" message. Gives up quietly; the caller then reports what it sees."""
+        waited = 0
+        while waited < timeout_ms:
+            names = (*self._PANEL_STEP_BUTTONS, "Submit application")
+            if any(self._step_button(page, n).count() for n in names):
+                break
+            if page.get_by_text(re.compile(r"application (was )?sent", re.I)).count():
+                break
+            page.wait_for_timeout(500)
+            waited += 500
+        page.wait_for_timeout(500)
+
     def _panel(self, live: _Live) -> dict[str, Any]:
         page = live.page
         heading = page.locator("h2, h3").filter(has_text=re.compile(r"^\s*Apply to ")).first
@@ -687,7 +702,7 @@ class BrowserManager:
             button.click()
             heading = page.locator("h2, h3").filter(has_text=re.compile(r"^\s*Apply to "))
             heading.first.wait_for(timeout=15_000)
-            page.wait_for_timeout(800)
+            self._wait_for_step(page)
             return self._panel(live)
 
         return self._call(op)
@@ -706,7 +721,8 @@ class BrowserManager:
             if button.count() == 0:
                 raise BrowserError("NOT_FOUND", f"No '{text}' button")
             button.click()
-            live.page.wait_for_timeout(1200)
+            live.page.wait_for_timeout(800)
+            self._wait_for_step(live.page)
             return self._panel(live)
 
         return self._call(op)

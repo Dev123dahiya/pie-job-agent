@@ -3267,3 +3267,12 @@ def test_auto_mode_still_obeys_the_daily_limit(
         auto_mode.auto_status = original  # type: ignore[assignment]
     assert res.status_code == 422 and "No live applications left today" in res.json()["detail"]
     assert li_site.submissions == []
+
+
+def test_linkedin_waits_for_a_slowly_loading_form(
+    client: Any, api: Any, db: Session, li_job: Any, li_site: Any
+) -> None:
+    job_id = li_job("slow")  # the title shows first, the form 2.5 s later
+    run = _li_run(client)
+    assert run["report"]["counts"] == {"linkedin_dry_run_complete": 1}, run["report"]
+    assert job_state(db, job_id) is S.READY_TO_APPLY and li_site.submissions == []

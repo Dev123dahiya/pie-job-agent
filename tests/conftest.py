@@ -20,6 +20,7 @@ from sqlalchemy.pool import StaticPool
 
 import database.models  # noqa: F401
 from backend.api import deps
+from backend.core.config import Settings as _Settings
 from backend.core.config import get_settings
 from backend.core.profile import UserProfile
 from backend.main import create_app
@@ -28,6 +29,11 @@ from database.base import Base
 from database.session import get_db
 from integrations.job_sources.config import JobSourcesConfig, load_job_sources_config
 from integrations.job_sources.mock import MockSource
+
+# Tests never read the user's real .env (it holds keys and the live switches). Settings come
+# only from code defaults and what each test sets.
+_Settings.model_config["env_file"] = None
+get_settings.cache_clear()
 
 
 @pytest.fixture
