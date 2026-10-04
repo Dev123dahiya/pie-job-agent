@@ -4,6 +4,8 @@ export type PausedQuestion = {
   kind: "standard" | "form" | "sensitive" | "challenge";
   reason: string | null;
   answerable: boolean;
+  /** The form's own dropdown choices; the answer must be one of them. */
+  options?: string[];
 };
 
 export type PausedJob = {

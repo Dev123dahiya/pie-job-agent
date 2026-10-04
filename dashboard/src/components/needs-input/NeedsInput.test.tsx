@@ -33,6 +33,19 @@ describe("Needs my input", () => {
     expect(save).toBeEnabled();
   });
 
+  it("offers the form's own choices for a dropdown question", () => {
+    const dropdown: PausedJob = {
+      ...job,
+      questions: [
+        { question_key: "q_notice_ab12cd34", question: "Notice period?", kind: "form", reason: null, answerable: true, options: ["Immediate joiner", "30 days"] },
+      ],
+    };
+    render(<AnswerForm job={dropdown} />);
+    expect(screen.queryByRole("textbox")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Notice period?"), { target: { value: "Immediate joiner" } });
+    expect(screen.getByRole("button", { name: "Save answers" })).toBeEnabled();
+  });
+
   it("lists saved answers with edit and delete, or an empty state", () => {
     const { rerender } = render(
       <SavedAnswers answers={[{ id: "s1", question_key: "current_ctc", question: "Current CTC?", answer: "0", source: "you", updated_at: "" }]} />,

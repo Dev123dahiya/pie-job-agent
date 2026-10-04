@@ -486,8 +486,9 @@ def _plan_page(
             "category": p.category,
             "reason": p.reason,
             "answer_status": p.answer_status,
+            "options": option_labels(f),  # the page's own choices, shown to the user
         }
-        for p in plans
+        for p, f in zip(plans, snap.fields, strict=True)
         if p.action == "block"
     ]
     session.skipped_fields = [

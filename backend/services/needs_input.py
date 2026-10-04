@@ -51,6 +51,7 @@ class Question:
     kind: str  # standard | form | sensitive | challenge
     reason: str | None = None
     answerable: bool = True  # False for CAPTCHA / OTP / login: act in the browser instead
+    options: list[str] = field(default_factory=list)  # a dropdown's own choices, if any
 
 
 @dataclass
@@ -123,6 +124,7 @@ def paused_jobs(db: Session, settings: Settings, profile: UserProfile) -> list[P
                         else ("sensitive" if category == "SENSITIVE" else "form"),
                         reason=m.get("reason"),
                         answerable=not challenge,
+                        options=[str(o) for o in m.get("options") or [] if str(o).strip()],
                     )
                 )
             for c in session.challenges or []:

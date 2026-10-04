@@ -325,3 +325,44 @@ def test_ctc_and_experience_questions(label: str, expected: str | None) -> None:
 )
 def test_phone_country_code_never_gets_the_phone_number(label: str, expected: str) -> None:
     assert classify(field(label), "Gurugram, India")[0] == expected
+
+
+def test_a_sensitive_answer_is_reused_only_for_its_exact_question(real_like: UserProfile) -> None:
+    convicted = "Have you ever been convicted of a criminal offence?"
+    row = ApplicationAnswer(
+        application_id=None,
+        question_key=question_key(convicted),
+        question=convicted,
+        answer="No",
+        status=AnswerStatus.VERIFIED,
+        source="answered by the user in the dashboard on 2026-10-04",
+    )
+    bank = AnswerBank(real_like, [row])
+    plan = plan_field(yes_no(convicted), bank, None, True)
+    assert plan.category == VERIFIED_AUTOFILL and plan.key == question_key(convicted)
+    # Same kind of question, different question: never answered with that "No".
+    other = plan_field(yes_no("Do you consent to a background check?"), bank, None, True)
+    assert other.category == SENSITIVE and other.action != "fill"
+    passport = plan_field(yes_no("Are you a citizen of the United States?"), bank, None, True)
+    assert passport.category == SENSITIVE and passport.action != "fill"
+
+
+def test_the_users_answer_for_one_dropdown_wins_over_the_general_answer(
+    real_like: UserProfile,
+) -> None:
+    label = "What is your notice period?"
+    q = field(
+        label, "select", options=[{"label": "Select"}, {"label": "0-15 days"}, {"label": "30 days"}]
+    )
+    general = plan_field(q, AnswerBank(real_like), None, True)
+    assert general.action == "block" and general.key == question_key(label)  # saved per question
+    row = ApplicationAnswer(
+        application_id=None,
+        question_key=question_key(label),
+        question=label,
+        answer="0-15 days",
+        status=AnswerStatus.VERIFIED,
+        source="answered by the user in the dashboard on 2026-10-04",
+    )
+    plan = plan_field(q, AnswerBank(real_like, [row]), None, True)
+    assert plan.action == "fill" and plan.option == 1

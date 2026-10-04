@@ -55,6 +55,16 @@ SENSITIVE_KEYS = {
     "legal_question",
     "work_authorization_other_country",
 }
+# Sensitive keys that name a TYPE of question, not one question: "No" to "ever convicted?"
+# must never answer "do you agree to a background check?". The user's answer is stored and
+# reused only for the exact question it was given for.
+PER_QUESTION_KEYS = {
+    "sensitive_demographic",
+    "consent",
+    "citizenship",
+    "security_question",
+    "legal_question",
+}
 TEXT_KINDS = {"text", "textarea", "email", "tel", "url"}
 
 
@@ -304,8 +314,14 @@ def plan_field(
             return stop(UNKNOWN, f"no verified answer ({reason})", question_key(label), stored)
         key = stored.key
 
+    sensitive = key in SENSITIVE_KEYS
+    # The user's own answer for exactly this question wins over the general one (e.g. the
+    # option they picked in one employer's notice-period dropdown).
+    exact = bank.get(question_key(label))
+    if key in PER_QUESTION_KEYS or (exact.verified and exact.from_user):
+        key = question_key(label)
     answer = bank.get(key)
-    if key in SENSITIVE_KEYS and not (answer.verified and answer.from_user):
+    if sensitive and not (answer.verified and answer.from_user):
         return stop(SENSITIVE, f"{reason}: only you can answer this", key, answer)
     if answer.conflict:
         return stop(AMBIGUOUS, f"answer '{key}': {answer.note}", key, answer)
@@ -319,7 +335,8 @@ def plan_field(
     labels = option_labels(field)
     target = fill_target(kind, labels, answer.value)
     if isinstance(target, str):  # messages name the answer key, never the answer itself
-        return stop(AMBIGUOUS, f"answer '{key}': {target}", key, answer)
+        # The user's choice for this dropdown is saved for exactly this question.
+        return stop(AMBIGUOUS, f"answer '{key}': {target}", question_key(label), answer)
     value, option, why = target
     selected = field.get("selected_label") or None
     plan = FieldPlan(**base, key=key, category=VERIFIED_AUTOFILL, action="fill", reason=reason,

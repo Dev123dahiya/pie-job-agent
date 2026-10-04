@@ -58,7 +58,21 @@ export function AnswerForm({ job }: { job: PausedJob }) {
             {KIND_LABEL[q.kind]}
             {q.reason ? ` · ${q.reason}` : ""}
           </p>
-          {q.answerable ? (
+          {q.answerable && q.options && q.options.length > 0 ? (
+            <select
+              id={`${job.job_id}-${q.question_key}`}
+              value={values[q.question_key] ?? ""}
+              onChange={(e) => setValues({ ...values, [q.question_key]: e.target.value })}
+              className={FIELD}
+            >
+              <option value="">Choose the true answer…</option>
+              {q.options.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          ) : q.answerable ? (
             <textarea
               id={`${job.job_id}-${q.question_key}`}
               rows={1}

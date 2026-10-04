@@ -121,7 +121,8 @@ def run(ctx: svc.ExecContext, job: Job) -> dict[str, Any]:
                 session.missing_answers = [
                     {"field_id": p["field_id"], "question": p["label"],
                      "question_key": p["key"], "category": p["category"],
-                     "reason": p["reason"], "answer_status": p.get("answer_status")}
+                     "reason": p["reason"], "answer_status": p.get("answer_status"),
+                     "options": p.get("options") or []}  # the page's own choices
                     for p in missing
                 ]  # fmt: skip
                 questions = "; ".join(m["question"] for m in session.missing_answers)
