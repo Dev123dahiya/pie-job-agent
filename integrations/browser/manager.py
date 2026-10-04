@@ -596,7 +596,7 @@ class BrowserManager:
         return self._call(op)
 
     def click_platform_apply(
-        self, url: str, button: str, expect_text: str, follow_up: str
+        self, url: str, button: str, expect_text: str, follow_up: str, applied_text: str = "Applied"
     ) -> dict[str, Any]:
         """LIVE, irreversible: open a platform job page, check the apply ``button`` reads
         exactly ``expect_text`` and click it once. Only called after the user's explicit
@@ -617,12 +617,24 @@ class BrowserManager:
             if before.lower() != expect_text.lower():
                 raise BrowserError("NOT_FOUND", f"The button reads '{before}', not '{expect_text}'")
             target.click()
-            page.wait_for_timeout(5000)
+            # The site may take a while to turn the button into "Applied" (the old button
+            # can even be replaced): wait for that before judging what happened.
+            applied = page.locator("button").filter(
+                has_text=re.compile(rf"^\s*{re.escape(applied_text)}\s*$", re.I)
+            )
+            waited = 0
+            while waited < 20_000 and applied.count() == 0:
+                page.wait_for_timeout(1000)
+                waited += 1000
             after = page.locator(button).first
+            is_applied = applied.count() > 0
             return {
                 "url": page.url,
-                "button_after": " ".join(after.inner_text().split()) if after.count() else None,
-                "follow_up": page.locator(follow_up).count() > 0,
+                "applied": is_applied,
+                "button_after": applied_text
+                if is_applied
+                else (" ".join(after.inner_text().split()) if after.count() else None),
+                "follow_up": not is_applied and page.locator(follow_up).count() > 0,
                 "text": page.inner_text("body")[:3000] if page.locator("body").count() else "",
             }
 

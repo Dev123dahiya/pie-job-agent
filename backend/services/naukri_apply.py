@@ -184,8 +184,10 @@ def submit(
     evidence = {"button_after": out.get("button_after"), "follow_up": out.get("follow_up"),
                 "url_after": out.get("url"), "checked_at": utcnow().isoformat()}  # fmt: skip
     attempt.evidence = evidence
-    if not out.get("follow_up") and (
-        after.startswith("applied") or any(t in text for t in naukri.APPLIED_TEXTS[1:])
+    # Naukri's own "Applied" button is the proof; a chat drawer can be on the page too.
+    if out.get("applied") or (
+        not out.get("follow_up")
+        and (after.startswith("applied") or any(t in text for t in naukri.APPLIED_TEXTS[1:]))
     ):
         attempt.outcome = SubmissionOutcome.CONFIRMED
         svc._mark_submitted(ctx, session, job, app, evidence, "Naukri shows the job as applied")

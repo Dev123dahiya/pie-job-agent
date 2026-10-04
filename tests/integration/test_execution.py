@@ -2820,8 +2820,14 @@ def test_review_batch_approval_keeps_every_check(
 
 
 class FakeNaukri:
-    def __init__(self, button: str = "Apply", after: str = "Applied", follow_up: bool = False):
-        self.button, self.after, self.follow_up = button, after, follow_up
+    def __init__(
+        self,
+        button: str = "Apply",
+        after: str = "Applied",
+        follow_up: bool = False,
+        applied: bool | None = None,
+    ):
+        self.button, self.after, self.follow_up, self.applied = button, after, follow_up, applied
         self.clicks: list[str] = []
 
     def read_cards(self, url: str, spec: dict[str, Any], *, render_all: bool = False) -> Any:
@@ -2831,7 +2837,10 @@ class FakeNaukri:
 
     def click_platform_apply(self, url: str, button: str, expect: str, follow_up: str) -> Any:
         self.clicks.append(url)
-        return {"url": url, "button_after": self.after, "follow_up": self.follow_up, "text": ""}
+        out = {"url": url, "button_after": self.after, "follow_up": self.follow_up, "text": ""}
+        if self.applied is not None:
+            out["applied"] = self.applied
+        return out
 
 
 @pytest.fixture
@@ -2937,6 +2946,24 @@ def test_naukri_follow_up_questions_pause_for_the_user(
         json={"submitted": True, "note": "Answered Naukri's questions myself"},
     )
     assert resolved.status_code == 200 and job_state(db, naukri_job) is S.SUBMITTED
+
+
+def test_naukri_applied_button_wins_over_a_chat_element_on_the_page(
+    client: Any, api: Any, db: Session, live_settings: Settings, naukri_job: Any
+) -> None:
+    # Live 2026-10-04: a "chatbot" element was on the page while Naukri showed "Applied".
+    fake = FakeNaukri(after="Apply", follow_up=True, applied=True)
+    _fake_naukri(client, fake)
+    api["settings"] = live_settings
+    _start(client, steps=["apply"], platforms=["naukri"], mode="review",
+           confirmation=_naukri_phrase(client))  # fmt: skip
+    [item] = client.get("/api/review").json()["items"]
+    out = client.post(
+        f"/api/review/{item['session_id']}/approve",
+        json={"statement": item["confirmation_statement"]},
+    ).json()
+    assert out["submitted"] is True and out["outcome"] == "CONFIRMED"
+    assert job_state(db, naukri_job) is S.SUBMITTED and len(fake.clicks) == 1
 
 
 def test_naukri_approve_respects_the_daily_limit(
