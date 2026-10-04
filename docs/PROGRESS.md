@@ -144,6 +144,11 @@ after Phase C".
 - 2026-10-04: local ATS check of tailored resumes (offline; the user agreed: no online ATS
   sites). LinkedIn Easy Apply uploads the job's tailored resume in review mode only (a dry
   run never uploads); Naukri's one-click Apply always sends the resume saved on Naukri.
+- 2026-10-04 user: final match score = average of Claude's score and a fixed-weight dimension
+  score (role 30, experience 25, skills 25, location 15, salary 5; strong 1, medium 0.6,
+  unknown 0.5, weak 0); min_match_score 65. Re-checking saved analyses: 3 shortlisted.
+  User asked for fully automatic applying (no "OK" per application): auto mode, gated per
+  platform by REQUIREMENTS 10 (one successful dry run + one successful review application).
 
 ## Environment notes
 

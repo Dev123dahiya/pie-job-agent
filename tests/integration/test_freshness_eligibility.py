@@ -116,7 +116,7 @@ def test_other_rules_are_unchanged(rules: ShortlistRules) -> None:
         "skills_match": [],
         "salary_match": ["weak"],  # unknown salary is still not a rejection
     }
-    assert rules.min_match_score == 80 and rules.max_missing_skills is None  # user, 2026-10-04
+    assert rules.min_match_score == 65 and rules.max_missing_skills is None  # user, 2026-10-04
     assert rules.require_analyzer_recommendation is True
     assert rules.analyze_stale_jobs_in_batch is False
     ok, _ = evaluate(output("fresh"), rules)  # unknown salary + fresh: still eligible

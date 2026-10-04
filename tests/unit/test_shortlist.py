@@ -40,7 +40,7 @@ def test_shipped_rules_file_loads_with_expected_defaults() -> None:
     assert rules.dimensions["role_match"].reject == ["weak"]
     assert rules.dimensions["salary_match"].reject == ["weak"]
     assert rules.freshness.reject == ["stale", "unknown"]  # only FRESH qualifies
-    assert rules.min_match_score == 80  # the user raised it from 70 (REQUIREMENTS 6) on 2026-10-04
+    assert rules.min_match_score == 65  # the user set 65 on 2026-10-04 (REQUIREMENTS 6 default: 70)
 
 
 def test_default_rules_accept_unknown_salary_and_missing_skills() -> None:
@@ -69,9 +69,25 @@ def test_default_rules_accept_only_fresh() -> None:
 
 
 def test_thresholds_are_configurable() -> None:
-    rules = ShortlistRules(min_match_score=70, max_missing_skills=1)
+    rules = ShortlistRules(min_match_score=75, max_missing_skills=1)  # final score here: 71
     ok, results = evaluate(output(), rules)
     assert not ok and set(failed(results)) == {"min_match_score", "max_missing_skills"}
+
+
+def test_final_score_is_the_average_of_claude_and_the_dimensions() -> None:
+    from backend.services.shortlist import combined_score, dimension_score
+
+    levels = {"role_match": "strong", "experience_match": "medium", "skills_match": "medium",
+              "location_match": "strong", "salary_match": "unknown"}  # fmt: skip
+    # 30 + 25*0.6 + 25*0.6 + 15 + 5*0.5 = 77.5 of 100
+    assert dimension_score(levels) == 78
+    assert combined_score(64, levels) == (71, 78)
+    all_weak = dict.fromkeys(levels, "weak")
+    assert dimension_score(all_weak) == 0 and combined_score(90, all_weak) == (45, 0)
+    [rule] = [r for r in evaluate(output(), ShortlistRules(min_match_score=65))[1]
+              if r["rule"] == "min_match_score"]  # fmt: skip
+    assert (rule["claude_score"], rule["dimension_score"], rule["final_score"]) == (64, 78, 71)
+    assert rule["passed"] and "Claude 64, dimensions 78" in rule["detail"]
 
 
 def test_analyzer_recommendation_can_be_required_or_ignored() -> None:

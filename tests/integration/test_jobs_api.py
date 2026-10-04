@@ -1,6 +1,7 @@
 """Jobs and agent API, end to end on the mock source with the heuristic analyzer."""
 
 import uuid
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -268,3 +269,33 @@ def test_manual_apply_list(client: TestClient, discovered: str) -> None:
         assert client.post(f"/api/jobs/{discovered_only[0]['id']}/manual").status_code == 409
     missing = "00000000-0000-0000-0000-000000000000"
     assert client.post(f"/api/jobs/{missing}/manual").status_code == 404
+
+
+def test_reapplying_rules_uses_saved_analyses_and_never_touches_skipped_jobs(
+    client: TestClient, discovered: str, db: Any
+) -> None:
+    from datetime import UTC, datetime
+
+    from backend.services.analysis import reapply_shortlist_rules
+    from backend.services.shortlist import ShortlistRules
+    from database.enums import JobPipelineState as S
+    from database.models import Job
+
+    client.post("/api/jobs/analyze-shortlist", json={"limit": 50})
+    shortlisted = client.get("/api/jobs/shortlisted").json()["items"]
+    skipped_id = shortlisted[0]["id"]
+    client.post(f"/api/jobs/{skipped_id}/skip")
+    db.expire_all()
+    rejected_before = db.query(Job).filter(Job.pipeline_state == S.REJECTED_BY_AGENT).count()
+
+    # Stricter rules re-shortlist nothing; looser ones may, but never the job the user skipped.
+    strict = reapply_shortlist_rules(db, ShortlistRules(min_match_score=100), 48, datetime.now(UTC))
+    assert strict["newly_shortlisted"] == 0 and strict["checked"] >= 1
+    loose = ShortlistRules(
+        min_match_score=0, require_analyzer_recommendation=False, dimensions={},
+        freshness={"reject": []},
+    )  # fmt: skip
+    counts = reapply_shortlist_rules(db, loose, 48, datetime.now(UTC))
+    db.expire_all()
+    assert db.get(Job, uuid.UUID(skipped_id)).pipeline_state is S.REJECTED_BY_AGENT
+    assert counts["newly_shortlisted"] == rejected_before - 1  # every other rejected job

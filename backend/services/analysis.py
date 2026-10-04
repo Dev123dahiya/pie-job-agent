@@ -18,7 +18,13 @@ from agent.analysis.schema import AnalysisJob, AnalysisValidationError, validate
 from backend.core.profile import UserProfile
 from backend.services.freshness import compute_freshness, freshness_filter
 from backend.services.runs import RunLogger, cancel_requested, ensure_no_active_run, finish_run
-from backend.services.shortlist import ShortlistRules, evaluate, exclusion_check
+from backend.services.shortlist import (
+    DIMENSION_WEIGHTS,
+    ShortlistRules,
+    combined_score,
+    evaluate,
+    exclusion_check,
+)
 from database.base import utcnow
 from database.enums import (
     AgentActionStatus,
@@ -221,7 +227,9 @@ def analyze_job(db: Session, job: Job, ctx: AnalysisContext, log: RunLogger) -> 
     analysis = JobAnalysis(
         job_id=job.id,
         agent_run_id=log.run.id,
-        match_score=output.match_score,
+        match_score=combined_score(
+            output.match_score, {d: str(getattr(output, d)) for d in DIMENSION_WEIGHTS}
+        )[0],
         role_match=MatchLevel(output.role_match),
         skills_match=MatchLevel(output.skills_match),
         experience_match=MatchLevel(output.experience_match),
@@ -505,3 +513,74 @@ class AnalysisService:
             f"shortlisted {run.jobs_shortlisted}, rejected {run.jobs_rejected}, "
             f"failed {run.jobs_failed}."
         )
+
+
+def reapply_shortlist_rules(
+    db: Session, rules: ShortlistRules, max_age_hours: int, now: datetime | None = None
+) -> dict[str, int]:
+    """Re-check already analyzed jobs against the CURRENT rules and score formula, from the
+    saved analysis (no Claude call). Freshness is recomputed as of now. Jobs the user skipped
+    and FAILED jobs are left alone (B4: failed jobs are never re-shortlisted automatically).
+    Returns counts."""
+    from types import SimpleNamespace
+
+    from backend.services.freshness import compute_freshness
+
+    now = now or utcnow()
+    counts = {"checked": 0, "newly_shortlisted": 0}
+    jobs = db.scalars(
+        select(Job).where(
+            Job.pipeline_state.in_([JobPipelineState.ANALYZED, JobPipelineState.REJECTED_BY_AGENT])
+        )
+    ).all()
+    for job in jobs:
+        skipped = db.scalar(
+            select(ApplicationEvent.id).where(
+                ApplicationEvent.job_id == job.id, ApplicationEvent.event_type == "skipped_by_user"
+            )
+        )
+        analysis = db.scalars(
+            select(JobAnalysis)
+            .where(JobAnalysis.job_id == job.id)
+            .order_by(JobAnalysis.created_at.desc())
+        ).first()
+        if skipped or analysis is None or analysis.match_score is None:
+            continue
+        earlier = next(
+            (r for r in analysis.rule_results or [] if r.get("rule") == "min_match_score"), {}
+        )
+        claude = int(earlier.get("claude_score", analysis.match_score))
+        output = SimpleNamespace(
+            match_score=claude,
+            role_match=analysis.role_match.value,
+            skills_match=analysis.skills_match.value,
+            experience_match=analysis.experience_match.value,
+            location_match=analysis.location_match.value,
+            salary_match=analysis.salary_match.value,
+            freshness=compute_freshness(job.posted_at, now, max_age_hours).value,
+            missing_skills=analysis.missing_skills or [],
+            should_shortlist=analysis.should_shortlist,
+        )
+        shortlisted, results = evaluate(output, rules)  # type: ignore[arg-type]
+        counts["checked"] += 1
+        analysis.match_score = combined_score(
+            claude, {d: getattr(output, d) for d in DIMENSION_WEIGHTS}
+        )[0]
+        analysis.rule_results, analysis.shortlisted = results, shortlisted
+        if shortlisted:
+            previous = job.pipeline_state
+            assert_transition(previous, JobPipelineState.SHORTLISTED)
+            job.pipeline_state = JobPipelineState.SHORTLISTED
+            db.add(
+                ApplicationEvent(
+                    job_id=job.id,
+                    event_type="shortlisted_after_rule_change",
+                    source=EventSource.SYSTEM,
+                    previous_status=previous.value,
+                    new_status=JobPipelineState.SHORTLISTED.value,
+                    reason=f"Passes the current rules (score {analysis.match_score})",
+                )
+            )
+            counts["newly_shortlisted"] += 1
+    db.commit()
+    return counts
