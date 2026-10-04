@@ -90,7 +90,7 @@ after Phase C".
 ## Decisions
 
 - B2: started fresh on SQLite. The old PostgreSQL dump stays in `data/backups/` as an archive.
-- `DAILY_RUN_ENABLED=false` stays in `.env` until the first planned analysis run.
+- 2026-10-04 `DAILY_RUN_ENABLED=true` (user asked): discover + analyze daily at 07:00 IST while `python -m backend.serve` runs; it never applies.
 - Before the first analysis run: add the model-per-task setting (scoring on claude-sonnet-5-5,
   tailoring and answers on claude-opus-5-5), cap the run at 50 jobs, and give a usage estimate
   first.
