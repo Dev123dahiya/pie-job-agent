@@ -3128,3 +3128,50 @@ def test_quota_patterns() -> None:
     assert quota_warning(nk, "You have reached your daily apply limit")
     assert quota_warning(li, "We noticed unusual activity on your account")
     assert quota_warning(nk, "Python developer, 2 years, no limit on growth") is None
+
+
+def _as_linkedin_job(db: Session, job_id: uuid.UUID, li_site: Any) -> None:
+    job = db.get(Job, job_id)
+    assert job is not None
+    job.source, job.url, job.application_url = "linkedin", li_site.url("normal"), None
+    db.commit()
+
+
+def test_linkedin_dry_run_never_uploads_the_tailored_resume(
+    client: Any, api: Any, db: Session, li_job: Any, li_site: Any, ready_job: uuid.UUID
+) -> None:
+    _as_linkedin_job(db, ready_job, li_site)  # has a validated tailored resume
+    run = _li_run(client)
+    assert run["report"]["counts"] == {"linkedin_dry_run_complete": 1}, run["report"]
+    session = db.scalars(select(BrowserSession).where(BrowserSession.job_id == ready_job)).one()
+    assert session.uploaded_resume and session.uploaded_resume["status"] == "NOT_UPLOADED_DRY_RUN"
+
+
+def test_linkedin_review_uploads_the_tailored_resume(
+    client: Any,
+    api: Any,
+    db: Session,
+    li_job: Any,
+    li_site: Any,
+    ready_job: uuid.UUID,
+    live_settings: Settings,
+) -> None:
+    _as_linkedin_job(db, ready_job, li_site)
+    api["settings"] = live_settings
+    phrase = next(
+        p
+        for p in client.get("/api/runs/options").json()["platforms"]
+        if p["platform"] == "linkedin"
+    )["review_confirmation"]["phrase"]
+    run = _li_run(client, mode="review", confirmation=phrase)
+    assert run["report"]["counts"] == {"linkedin_waiting_for_review": 1}, run["report"]
+    session = db.scalars(select(BrowserSession).where(BrowserSession.job_id == ready_job)).one()
+    assert session.uploaded_resume and session.uploaded_resume["status"] == "UPLOAD_SUCCESS"
+    assert session.uploaded_resume["file_name"].endswith(".pdf")
+    [item] = client.get("/api/review").json()["items"]
+    assert item["uploaded_resume"].endswith(".pdf")
+    ok = client.post(
+        f"/api/review/{item['session_id']}/approve",
+        json={"statement": item["confirmation_statement"]},
+    )
+    assert ok.json()["submitted"] is True and li_site.submissions[-1] == "normal"

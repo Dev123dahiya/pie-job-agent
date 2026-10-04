@@ -141,6 +141,9 @@ after Phase C".
 - 2026-10-04 user choices: freshness window 72 h (profile); min_match_score 80 (was 70);
   searches per run: Naukri 8, LinkedIn 5, spread across all roles first. Second run: 12 new
   jobs, 14 scored, 0 shortlisted (best 68; most fresh jobs are mid/senior roles).
+- 2026-10-04: local ATS check of tailored resumes (offline; the user agreed: no online ATS
+  sites). LinkedIn Easy Apply uploads the job's tailored resume in review mode only (a dry
+  run never uploads); Naukri's one-click Apply always sends the resume saved on Naukri.
 
 ## Environment notes
 

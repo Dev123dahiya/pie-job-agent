@@ -27,7 +27,8 @@ const STEPS = [
    <label for="email">Email address</label>
    <select id="email" required><option value="">Select an option</option>
      <option selected>candidate@example.com</option></select>
-   <label for="phone">Mobile phone number</label><input id="phone" required>`,
+   <label for="phone">Mobile phone number</label><input id="phone" required>
+   <label for="cv">Upload resume</label><input type="file" id="cv" accept=".pdf">`,
   `<h3>Additional questions</h3>
    <fieldset><legend>Are you legally authorized to work in India?</legend>
      <label><input type="radio" name="auth" value="Yes" required>Yes</label>

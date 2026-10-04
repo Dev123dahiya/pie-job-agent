@@ -13,7 +13,7 @@ dimensions:
   salary_match:     {reject: [weak]}    # "unknown" (no salary listed) is never a rejection
 
 # fresh | stale | unknown. Only FRESH qualifies: a job must have trustworthy evidence that it
-# was posted/released/created within the 48-hour window. No (trustworthy) post date = unknown
+# was posted/released/created within the freshness window (preferences.maximum_application_age_hours). No (trustworthy) post date = unknown
 # = rejected, exactly like stale.
 freshness:
   reject: [stale, unknown]

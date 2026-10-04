@@ -10,7 +10,8 @@
 
 A required question without a verified answer (or a sensitive one the user never answered)
 pauses the job for the user (Needs my input), exactly like the company-site flow; PIE never
-guesses. The resume step keeps the resume saved on the user's LinkedIn profile. Field values
+guesses. The resume step uploads the job's validated tailored resume in review mode (a dry run
+never uploads); without one, LinkedIn's saved resume is used. Field values
 are never stored: sessions record labels, answer keys and sources only.
 """
 
@@ -32,9 +33,9 @@ from integrations.platforms.linkedin import selectors as linkedin
 B = BrowserSessionState
 
 
-def _plans(panel: dict[str, Any], bank: Any, job: Job) -> list[dict[str, Any]]:
+def _plans(panel: dict[str, Any], bank: Any, job: Job, resume_ready: bool) -> list[dict[str, Any]]:
     fields = panel.get("fields") or []
-    plans = plan_fields(fields, bank, job.location, resume_ready=False)
+    plans = plan_fields(fields, bank, job.location, resume_ready=resume_ready)
     return [{**p.public(), "options": option_labels(f)} for p, f in zip(plans, fields, strict=True)]
 
 
@@ -72,6 +73,11 @@ def run(ctx: svc.ExecContext, job: Job) -> dict[str, Any]:
             sid, job.url, dry_run=not live, button_name=linkedin.EASY_APPLY_BUTTON_NAME
         )
         bank = svc._bank(ctx, app)
+        # A validated tailored resume for this job replaces LinkedIn's saved one - uploaded
+        # only in review (live) mode: uploading sends the file to LinkedIn. Without one, the
+        # resume saved on the user's LinkedIn profile is used.
+        version = svc._validated_resume(ctx, app)
+        pdf = svc._resume_pdf(ctx, version)
         filled: list[dict[str, Any]] = []
         for step in range(1, linkedin.MAX_STEPS + 1):
             warning = quota_warning(linkedin, str(panel.get("ui_text") or ""))
@@ -80,9 +86,24 @@ def run(ctx: svc.ExecContext, job: Job) -> dict[str, Any]:
                     "PLATFORM_QUOTA", f"LinkedIn shows a limit/warning ('{warning}'): stopped"
                 )
             session.state, session.current_step = B.FILLING, f"Easy Apply step {step}"
-            plans = _plans(panel, bank, job)
+            plans = _plans(panel, bank, job, resume_ready=pdf is not None)
             missing = [p for p in plans if p["action"] == "block"]
             for plan in plans:
+                if plan["action"] == "upload_resume" and version is not None and pdf is not None:
+                    if live:
+                        session.uploaded_resume = svc._upload(
+                            ctx, session, version, pdf, plan["field_id"]
+                        )
+                    else:
+                        session.uploaded_resume = {
+                            "resume_version_id": str(version.id),
+                            "version_number": version.version_number,
+                            "file_name": pdf.name,
+                            "status": "NOT_UPLOADED_DRY_RUN",
+                            "detail": "A dry run never uploads: review mode would upload "
+                            f"tailored v{version.version_number}.",
+                        }
+                    continue
                 if plan["action"] != "fill":
                     continue
                 result = svc._fill_one(ctx, session, plan, bank)
