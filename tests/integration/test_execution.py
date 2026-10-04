@@ -2394,7 +2394,7 @@ def test_api_shows_todays_limits(client: Any, api: Any) -> None:
     rows = client.get("/api/dashboard/limits").json()
     assert [r["platform"] for r in rows] == ["total", "naukri", "linkedin", "company_site"]
     assert {r["platform"]: r["limit"] for r in rows} == {
-        "total": 20,
+        "total": 40,
         "naukri": 15,
         "linkedin": 5,
         "company_site": 10,

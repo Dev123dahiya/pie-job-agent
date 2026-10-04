@@ -21,7 +21,8 @@ def write(tmp_path: Path, text: str) -> Path:
 
 def test_shipped_config_has_the_agreed_limits() -> None:
     limits = load_automation(REPO_ROOT / "config" / "automation.yaml").daily_limits
-    assert (limits.total, limits.naukri, limits.linkedin, limits.company_site) == (20, 15, 5, 10)
+    # total raised 20 -> 40 by the user (2026-10-04) for the extra job sites
+    assert (limits.total, limits.naukri, limits.linkedin, limits.company_site) == (40, 15, 5, 10)
 
 
 def test_missing_file_means_the_agreed_defaults(tmp_path: Path) -> None:

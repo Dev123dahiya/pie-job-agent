@@ -44,7 +44,7 @@ def load(cfg: dict[str, Any], name: str) -> Any:
 
 def test_read_current_settings(client: TestClient, cfg: dict[str, Any]) -> None:
     body = client.get("/api/settings").json()
-    assert body["limits"] == {"total": 20, "naukri": 15, "linkedin": 5, "company_site": 10}
+    assert body["limits"] == {"total": 40, "naukri": 15, "linkedin": 5, "company_site": 10}
     assert body["min_match_score"] == 65 and body["keywords"]
     assert "current_ctc" in body["answer_questions"]
     assert "scoring: claude-sonnet-5-5" in body["read_only"]["models"]["current"]
