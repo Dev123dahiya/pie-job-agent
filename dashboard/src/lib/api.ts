@@ -1,5 +1,6 @@
 import { type LogPage, logsQueryString } from "./logs";
 import type { ManualJob } from "@/components/manual/ManualList";
+import type { AtsReport } from "@/components/resumes/AtsCard";
 import type { FailedList } from "./failed";
 import type { NeedsInput } from "./needsInput";
 import type { CurrentSettings } from "./settings";
@@ -225,4 +226,9 @@ export function getReviewQueue(fetchImpl?: typeof fetch) {
 /** Current settings (search, limits, minimum score, standard answers). */
 export function getSettings(fetchImpl?: typeof fetch) {
   return fetched<CurrentSettings>("/api/settings", fetchImpl);
+}
+
+/** Local ATS check of a tailored resume (409 for versions without a PDF). */
+export function getAtsCheck(versionId: string, fetchImpl?: typeof fetch) {
+  return fetched<AtsReport>(`/api/resumes/versions/${encodeURIComponent(versionId)}/ats`, fetchImpl, 10_000);
 }

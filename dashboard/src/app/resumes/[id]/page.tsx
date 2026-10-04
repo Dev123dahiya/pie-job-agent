@@ -5,8 +5,9 @@ import { notFound } from "next/navigation";
 import { ExperienceGapNotice } from "@/components/jobs/ExperienceGapNotice";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { getResumeVersion } from "@/lib/api";
+import { getAtsCheck, getResumeVersion } from "@/lib/api";
 import { humanize, relativeTime } from "@/lib/format";
+import { AtsCard } from "@/components/resumes/AtsCard";
 import { LockedBadge, ResumeUses } from "@/components/resumes/ResumeUses";
 import { artifactUrl, describeChanges } from "@/lib/resume";
 
@@ -32,7 +33,7 @@ function List({ title, items, empty = "None" }: { title: string; items: string[]
 
 export default async function ResumeVersionPage(props: PageProps<"/resumes/[id]">) {
   const { id } = await props.params;
-  const res = await getResumeVersion(id);
+  const [res, ats] = await Promise.all([getResumeVersion(id), getAtsCheck(id)]);
   if (!res.ok) {
     if (res.error.includes("404") || res.error.includes("422")) notFound();
     return (
@@ -108,6 +109,7 @@ export default async function ResumeVersionPage(props: PageProps<"/resumes/[id]"
         </div>
 
         <div className="flex flex-col gap-6">
+          {!v.is_master && <AtsCard ats={ats} />}
           {changes && (
             <Card title="Change summary" description="Facts preserved; only order and wording changed">
               <div className="flex flex-col gap-3">

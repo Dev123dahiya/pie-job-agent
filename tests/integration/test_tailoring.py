@@ -564,3 +564,26 @@ def test_api_master_resume_file_is_served_read_only(
     assert res.content == master.read_bytes()
     # Nothing in the request can choose another file.
     assert client.get("/api/resumes/master/file/../../.env").status_code == 404
+
+
+# --- Local ATS check -------------------------------------------------------------------------
+
+
+def test_api_ats_check_of_a_tailored_resume(
+    client: TestClient, api: dict[str, Any], job_id: Any, tailor_profile: Any
+) -> None:
+    vid = client.post(f"/api/jobs/{job_id}/tailored-resume").json()["data"]["resume_version_id"]
+    res = client.get(f"/api/resumes/versions/{vid}/ats")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    checks = {c["name"]: c for c in body["checks"]}
+    assert checks["text_readable"]["passed"] and checks["no_images"]["passed"]
+    assert checks["heading_skills"]["passed"] and checks["heading_education"]["passed"]
+    assert body["keyword_coverage"] is None or 0 <= body["keyword_coverage"] <= 100
+    # Missing skills the user does not have are listed apart, never as things to add.
+    have = {s.lower() for s in tailor_profile.verified_profile.all_skills()}
+    assert all(m.lower() not in have for m in body["missing_not_in_profile"])
+    assert all(m.lower() in have for m in body["missing_you_have"])
+    # Contact details are checked, never returned.
+    assert tailor_profile.verified_profile.email not in res.text
+    assert client.get(f"/api/resumes/versions/{uuid.uuid4()}/ats").status_code == 404

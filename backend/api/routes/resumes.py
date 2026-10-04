@@ -7,13 +7,14 @@ located, never a path from the request. The API listens on 127.0.0.1 only.
 
 import uuid
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.api.deps import profile_dep
 from backend.api.schemas import (
     MasterResumeStatus,
     ResumeUse,
@@ -21,6 +22,7 @@ from backend.api.schemas import (
     ResumeVersionDetail,
 )
 from backend.core.config import Settings, get_settings
+from backend.core.profile import UserProfile
 from backend.services.resumes import (
     ResumeUnavailableError,
     locate_master_resume,
@@ -159,3 +161,25 @@ def master_file(settings: Annotated[Settings, Depends(get_settings)]) -> FileRes
     return FileResponse(
         path, media_type=media, filename=path.name, content_disposition_type="inline"
     )
+
+
+@router.get("/versions/{version_id}/ats")
+def ats_check(
+    version_id: uuid.UUID,
+    db: DB,
+    settings: Annotated[Settings, Depends(get_settings)],
+    profile: Annotated[UserProfile, Depends(profile_dep)],
+) -> dict[str, Any]:
+    """Local ATS check of a tailored resume against its job (offline; nothing is uploaded)."""
+    from backend.services.ats import check_resume
+
+    v = db.get(ResumeVersion, version_id)
+    if v is None:
+        raise HTTPException(404, "Resume version not found")
+    pdf = artifact_paths(v).get("pdf")
+    if pdf is None:
+        raise HTTPException(409, "Only a tailored resume with a PDF can be checked")
+    tailored_root = (settings.resumes_dir / "tailored").resolve()
+    if tailored_root not in pdf.resolve().parents:
+        raise HTTPException(404, "Artifact not available")
+    return check_resume(db, v, pdf, profile).as_dict()
