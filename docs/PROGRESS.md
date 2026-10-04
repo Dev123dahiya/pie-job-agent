@@ -159,6 +159,9 @@ after Phase C".
 - 2026-10-04 FIRST REAL APPLICATION: LinkedIn Easy Apply to xhawk (AI Engineer), filled in
   review mode, approved by the user in chat, LinkedIn confirmed it was sent. Auto mode is now
   unlocked on LinkedIn (Naukri / company sites still locked). Live switches are ON in .env.
+- 2026-10-04 FIRST AUTO-MODE APPLICATION: LinkedIn, EXL (AI/ML Engineer), submitted with no
+  per-application yes after the user answered EXL's screening questions. Sensitive answers
+  are now stored per exact question; Needs my input shows dropdown choices.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 
