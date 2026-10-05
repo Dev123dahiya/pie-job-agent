@@ -198,7 +198,10 @@ after Phase C".
   Instahyre copies and min experience > 2 dropped; description via /middleware/jobdetail from
   the search page). foundit job pages answer 403 "Access Denied" to automation, so PIE never
   opens them. Shortlisted foundit jobs go straight to Manual apply (MANUAL_ONLY_SOURCES) with
-  the employer's apply link. Enabled in the daily run. Next: Cutshort.
+  the employer's apply link. Enabled in the daily run.
+- 2026-10-05 Cutshort: login helper added (cutshort.io, logged-out /profile redirects), then
+  PAUSED by the user ("leave cutshort for now"). Not searched, not applied. Remaining in the
+  agreed order: Indeed, Wellfound; company career pages also paused.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 
