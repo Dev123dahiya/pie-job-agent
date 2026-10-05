@@ -131,8 +131,9 @@ def run(ctx: svc.ExecContext, job: Job) -> dict[str, Any]:
                 svc._block(ctx, session, job, app,
                            f"LinkedIn asks what PIE has no verified answer for: {questions}",
                            {"missing_answers": session.missing_answers})  # fmt: skip
-                if not live:
-                    ctx.browser.panel_discard(sid, linkedin.DISMISS_LABEL, linkedin.DISCARD_TEXT)
+                # Never leave a half-filled form open (a form left open on 2026-10-05 was
+                # finished outside PIE): once answered, the job starts the form again.
+                ctx.browser.panel_discard(sid, linkedin.DISMISS_LABEL, linkedin.DISCARD_TEXT)
                 ctx.db.commit()
                 return {"outcome": "needs_input", "session_id": sid}
             if linkedin.SUBMIT_TEXT in panel["buttons"]:

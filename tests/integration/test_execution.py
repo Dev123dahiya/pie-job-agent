@@ -3599,3 +3599,16 @@ def test_linkedin_new_confirmation_wording_counts_as_sent(
                      json={"statement": item["confirmation_statement"]})  # fmt: skip
     assert ok.json()["submitted"] is True, ok.json()
     assert li_site.submissions == ["submitted"] and job_state(db, job_id) is S.SUBMITTED
+
+
+def test_a_live_linkedin_form_paused_for_answers_is_discarded(
+    client: Any, api: Any, db: Session, li_job: Any, li_site: Any, live_settings: Settings
+) -> None:
+    job_id = li_job("unknown")  # asks a question PIE has no answer for
+    api["settings"] = live_settings
+    phrase = next(p for p in client.get("/api/runs/options").json()["platforms"]
+                  if p["platform"] == "linkedin")["review_confirmation"]["phrase"]  # fmt: skip
+    run = _li_run(client, mode="review", confirmation=phrase)
+    assert run["report"]["counts"] == {"linkedin_needs_input": 1}
+    assert li_site.discards == ["unknown"] and li_site.submissions == []  # nothing left open
+    assert job_state(db, job_id) is S.BLOCKED_NEEDS_USER

@@ -238,6 +238,14 @@ after Phase C".
   wording added. TantranZm/Emagesoft stuck again: the degree question is drawn after the step
   loads; a step that does not move is now read once more before failing, so the question is
   asked. Today: LinkedIn 2/5 (NxTreasury, Jobgether), Instahyre 1/5 (Meesho).
+- 2026-10-05 (evening) User answered: total experience "1", Bachelor's degree "Yes" (saved,
+  reused). Live fixes: LinkedIn marks the drawn option with aria-checked and redraws the group
+  (PIE's markers vanish) - the choice is confirmed by finding the selected option again by its
+  question + text; the Easy Apply button is waited for (drawn late). TantranZm and Emagesoft
+  SUBMITTED. Intellicredence shows "Application submitted" on LinkedIn although PIE never
+  clicked Submit (no attempt recorded): the paused LIVE form had been left open in the window;
+  recorded as applied outside PIE. Paused LinkedIn forms are now always discarded.
+  Day total: LinkedIn 4/5 + Intellicredence (outside PIE), Instahyre 1/5.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 
