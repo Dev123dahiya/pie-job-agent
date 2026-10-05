@@ -1,4 +1,4 @@
-"""Naukri and LinkedIn as job sources: search results read in a visible browser that uses the
+"""Naukri, LinkedIn and Instahyre as job sources: searched in a visible browser that uses the
 user's own saved login (data/browser/<platform>/, see backend/scripts/login.py).
 
 Read-only and low volume: a few searches per run (``max_searches``), one page each by
@@ -12,6 +12,8 @@ mean ("2 days ago" -> 3 days before now), so a job never looks fresher than it i
 (posted_at_kind = "relative_upper_bound").
 """
 
+import json
+import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -29,6 +31,7 @@ from integrations.job_sources.base import (
     parse_naive_as_earliest,
 )
 from integrations.platforms.base import classify_page, parse_relative_age, save_status
+from integrations.platforms.instahyre import selectors as instahyre
 from integrations.platforms.linkedin import selectors as linkedin
 from integrations.platforms.naukri import selectors as naukri
 
@@ -243,3 +246,104 @@ class LinkedInSource(PlatformSearchSource):
         seen = datetime.fromisoformat(p["seen_at"]) if p.get("seen_at") else self.now()
         posted = parse_relative_age(p.get("footer") or "", seen)
         return (posted, "relative_upper_bound") if posted else (None, "unknown")
+
+
+class InstahyreSource(PlatformSearchSource):
+    """Instahyre: the opportunities page's own search request, made from the logged-in page
+    (Instahyre has no shareable search address), then each kept job's public page."""
+
+    name = "instahyre"
+    platform = "instahyre"
+    selectors = instahyre
+    timestamp_kind = "published_tz_unknown"
+    discovery_method = "Instahyre job search, run in a visible browser with your own login"
+    docs_url = "https://www.instahyre.com"
+
+    def __init__(self, *, search_years: int | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        # The user chose the experience to search with (2026-10-05: 1 year); else the profile.
+        self.search_years = search_years
+
+    def _years(self) -> int | None:
+        if self.search_years is not None:
+            return self.search_years
+        years = self.experience_years()
+        return int(years) if years is not None else None
+
+    def search_jobs(self, task: SearchTask, query: SearchQuery) -> list[RawJob]:
+        path = instahyre.search_api_path(
+            task.params["term"], task.params["location"], self._years()
+        )
+        result = self._open(
+            lambda: self.browser.fetch_json(instahyre.HOME_URL, path, instahyre.SEARCH_API_PREFIX)
+        )
+        data = result.get("data")
+        if result.get("api_status") != 200 or not isinstance(data, dict):
+            raise SourceError(f"Instahyre search returned HTTP {result.get('api_status')}")
+        seen_at = self.now().isoformat()
+        jobs = []
+        for o in data.get("objects") or []:
+            url = str(o.get("public_url") or "")
+            if (
+                not o.get("id")
+                or not o.get("title")
+                or not url.startswith(instahyre.JOB_URL_PREFIX)
+            ):
+                continue
+            employer = o.get("employer") or {}
+            payload = {
+                "title": o.get("title"),
+                "url": url,
+                "company": employer.get("company_name"),
+                "location": o.get("locations"),
+                "tags": ", ".join(o.get("keywords") or []),
+                "seen_at": seen_at,
+            }
+            jobs.append(RawJob(source_job_id=str(o["id"]), payload=payload))
+        return jobs
+
+    def enrich(self, raw: RawJob) -> RawJob:
+        """The job's public page: description, experience range and datePosted."""
+        if self._details >= self.max_details:
+            return raw
+        self._details += 1
+        page = self._open(lambda: self.browser.read_page_text(self.job_url(raw)))
+        posting = job_posting(page.get("ld_json") or [])
+        text = str(page.get("text") or "")
+        experience = re.search(r"\b(\d+\s*-\s*\d+\s*Years|\d+\+?\s*Years)\b", text)
+        return RawJob(
+            source_job_id=raw.source_job_id,
+            payload={
+                **raw.payload,
+                "description": text,
+                "date_posted": posting.get("datePosted"),
+                "experience": experience.group(1) if experience else None,
+            },
+        )
+
+    def job_url(self, raw: RawJob) -> str:
+        url = str(raw.payload.get("url") or "")
+        if not url.startswith(instahyre.JOB_URL_PREFIX):
+            raise ValueError("Instahyre job link missing or not on instahyre.com")
+        return url.split("?")[0]
+
+    def _posted(self, p: dict[str, Any]) -> tuple[datetime | None, str]:
+        raw = str(p.get("date_posted") or "")
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):  # a date without a time zone
+            posted = parse_naive_as_earliest(f"{raw}T00:00:00")
+            if posted:
+                return posted, "published_tz_unknown"
+        return None, "unknown"
+
+
+def job_posting(ld_json: list[str]) -> dict[str, Any]:
+    """The schema.org JobPosting among a page's ld+json blocks ({} if none)."""
+    for block in ld_json:
+        try:
+            data = json.loads(block)
+        except ValueError:
+            continue
+        for item in data if isinstance(data, list) else [data]:
+            if isinstance(item, dict) and item.get("@type") == "JobPosting":
+                return item
+    return {}

@@ -1275,6 +1275,9 @@ def test_browser_manager_exposes_only_fixed_operations() -> None:
         # never from the agent; no agent tool reaches these.
         "read_cards",
         "read_page_text",
+        # Instahyre search: a GET to the platform's own search address, from its logged-in
+        # page; the allowed address prefix comes from the selectors file.
+        "fetch_json",
         # The one Naukri click: only from naukri_apply.submit after the user's "yes".
         "click_platform_apply",
         # LinkedIn Easy Apply panel: open, read, Next/Review/Back only, Submit (refused for

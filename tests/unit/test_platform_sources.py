@@ -214,3 +214,92 @@ def test_searches_cover_every_role_before_a_second_location(tmp_path: Path) -> N
         ("AI Engineer", "Gurugram"),
         ("SDE", "Noida"),
     ]
+
+
+# --- Instahyre (checked live 2026-10-05; see integrations/platforms/instahyre/selectors.py) ---
+
+
+class FakeInstahyre:
+    def __init__(self, objects: list[dict[str, Any]], api_status: int = 200,
+                 date_posted: str = "2026-10-01", page_url: str | None = None) -> None:  # fmt: skip
+        self.objects, self.api_status, self.date_posted = objects, api_status, date_posted
+        self.page_url = page_url
+        self.paths: list[str] = []
+        self.details: list[str] = []
+
+    def fetch_json(self, page_url: str, path: str, allowed_prefix: str) -> Any:
+        assert path.startswith(allowed_prefix) and allowed_prefix == "/api/v1/job_search?"
+        self.paths.append(path)
+        return {"status": 200, "url": self.page_url or page_url, "text": "Opportunities Sign out",
+                "api_status": self.api_status, "data": {"objects": self.objects}}  # fmt: skip
+
+    def read_page_text(self, url: str) -> Any:
+        self.details.append(url)
+        ld = '{"@context": "https://schema.org", "@type": "JobPosting", "title": "AI Engineer", ' \
+             f'"datePosted": "{self.date_posted}"}}'  # fmt: skip
+        text = "AI Engineer\n1-3 Years\nBuild LLM apps in Python"
+        return {"status": 200, "url": url, "text": text,
+                "ld_json": ['{"@type": "Organization"}', ld]}  # fmt: skip
+
+
+def ih_job(i: int, **over: Any) -> dict[str, Any]:
+    return {
+        "id": 433300 + i,
+        "title": "AI Engineer",
+        "public_url": f"https://www.instahyre.com/job-{433300 + i}-ai-engineer-at-acme-gurgaon/",
+        "employer": {"company_name": "Acme"},
+        "locations": "Gurgaon",
+        "keywords": ["Python", "LLM"],
+        **over,
+    }
+
+
+def test_instahyre_searches_with_its_own_names_and_the_chosen_experience(tmp_path: Path) -> None:
+    from integrations.job_sources.platforms import InstahyreSource
+
+    browser = FakeInstahyre([ih_job(1)])
+    src = source(InstahyreSource, browser, tmp_path, max_searches=2, search_years=1)
+    tasks = src.plan(SearchQuery(terms=["AI Engineer"], locations=["Gurugram", "India"]))
+    for task in tasks:
+        src.search_jobs(task, query())
+    assert "jobLocations=Gurgaon" in browser.paths[0] and "years=1" in browser.paths[0]
+    assert "skills=AI+Engineer" in browser.paths[0]
+    assert "jobLocations" not in browser.paths[1]  # "India" = no location filter
+
+
+def test_instahyre_jobs_get_their_date_and_experience_from_the_job_page(tmp_path: Path) -> None:
+    from integrations.job_sources.platforms import InstahyreSource
+
+    browser = FakeInstahyre([ih_job(1), ih_job(2, public_url="https://evil.invalid/job-1/")])
+    src = source(InstahyreSource, browser, tmp_path)
+    [raw] = src.search_jobs(src.plan(query())[0], query())  # the off-site link is dropped
+    job = src.normalize_job(src.enrich(raw))
+    assert job.source == "instahyre" and job.company == "Acme" and job.location == "Gurgaon"
+    assert job.experience_required == "1-3 Years" and job.posted_at_kind == "published_tz_unknown"
+    assert job.posted_at is not None and job.posted_at.date().isoformat() <= "2026-10-01"
+    assert job.url == "https://www.instahyre.com/job-433301-ai-engineer-at-acme-gurgaon/"
+
+
+def test_instahyre_without_a_date_is_unknown_and_errors_stop_the_source(tmp_path: Path) -> None:
+    from integrations.job_sources.platforms import InstahyreSource
+
+    src = source(InstahyreSource, FakeInstahyre([ih_job(1)], date_posted="soon"), tmp_path)
+    [raw] = src.search_jobs(src.plan(query())[0], query())
+    assert src.normalize_job(src.enrich(raw)).posted_at_kind == "unknown"
+    refused = source(InstahyreSource, FakeInstahyre([], api_status=400), tmp_path)
+    with pytest.raises(SourceError):
+        refused.search_jobs(refused.plan(query())[0], query())
+    logged_out = source(InstahyreSource, FakeInstahyre(
+        [], page_url="https://www.instahyre.com/login/?next=/candidate/"), tmp_path)  # fmt: skip
+    with pytest.raises(SourceAuthRequired):
+        logged_out.search_jobs(logged_out.plan(query())[0], query())
+
+
+def test_fetch_json_accepts_only_the_allowed_relative_address() -> None:
+    from integrations.browser import BrowserError, BrowserManager
+
+    manager = BrowserManager(headless=True)
+    for bad in ("https://evil.invalid/api/v1/job_search?x=1", "/api/v1/other?x=1",
+                "//evil.invalid/api/v1/job_search?"):  # fmt: skip
+        with pytest.raises(BrowserError):
+            manager.fetch_json("https://www.instahyre.com/", bad, "/api/v1/job_search?")

@@ -149,6 +149,18 @@ sources:
     max_details: 10
     request_delay_seconds: 10.0
 
+  # Instahyre: the opportunities page's own search, run from your logged-in page; each kept
+  # job's public page gives its post date and experience. Jobs stay listed for months and
+  # there is no "newest first", so freshness is 14 days here (backend/services/freshness.py).
+  # Off until Instahyre is a full platform (own daily limit, apply).
+  - name: instahyre
+    type: instahyre
+    enabled: false
+    max_searches: 6
+    max_details: 25
+    request_delay_seconds: 6.0
+    search_experience_years: 1  # the user's choice (2026-10-05)
+
   # Greenhouse Job Board API: official, public, documented, no login required.
   # https://developers.greenhouse.io/job-board.html
   # Add or remove company board tokens (the name in boards.greenhouse.io/<token>).

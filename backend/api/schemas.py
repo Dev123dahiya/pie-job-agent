@@ -115,7 +115,7 @@ class JobSummary(BaseModel):
             experience_required=job.experience_required,
             posted_at=job.posted_at,
             discovered_at=job.discovered_at,
-            freshness=compute_freshness(job.posted_at, now, max_age_hours),
+            freshness=compute_freshness(job.posted_at, now, max_age_hours, job.source),
             posted_at_kind=job.posted_at_kind,
             also_on=sorted(
                 {a.get("source", "") for a in job.source_attributions or []} - {job.source, ""}

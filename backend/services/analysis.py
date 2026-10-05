@@ -121,7 +121,7 @@ def build_analysis_job(job: Job, now: datetime, max_age_hours: int) -> AnalysisJ
         requirements=list(job.requirements or []),
         skills=list(job.skills or []),
         posted_at=job.posted_at.isoformat() if job.posted_at else None,
-        freshness=compute_freshness(job.posted_at, now, max_age_hours).value,
+        freshness=compute_freshness(job.posted_at, now, max_age_hours, job.source).value,
     )
 
 
@@ -557,7 +557,7 @@ def reapply_shortlist_rules(
             experience_match=analysis.experience_match.value,
             location_match=analysis.location_match.value,
             salary_match=analysis.salary_match.value,
-            freshness=compute_freshness(job.posted_at, now, max_age_hours).value,
+            freshness=compute_freshness(job.posted_at, now, max_age_hours, job.source).value,
             missing_skills=analysis.missing_skills or [],
             should_shortlist=analysis.should_shortlist,
         )

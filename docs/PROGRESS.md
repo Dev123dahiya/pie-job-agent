@@ -171,6 +171,13 @@ after Phase C".
   .env; the login script now follows that setting (it tried Edge first before). A named
   browser is the only one tried. Edge-made profiles backed up to data/backups/browser-edge-*;
   Naukri + LinkedIn logins still valid in Chrome.
+- 2026-10-05 Instahyre (step 1 of 3, search): user logged in (Google sign-in via the new
+  plain-Chrome login window). Live findings: search = the opportunities page's own GET
+  /api/v1/job_search (skills, jobLocations one per request, years); no date sort; job pages
+  carry schema.org datePosted + "N-M Years". User chose freshness 14 days for Instahyre and
+  search experience 1 year. InstahyreSource built + tested (live read-only smoke test OK),
+  config entry present but `enabled: false` until step 2 (Instahyre as its own platform with
+  a daily limit) and step 3 (apply: dry run, one approved application, then Auto).
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 

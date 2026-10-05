@@ -56,6 +56,17 @@ RENDER_ALL = """async (card) => {
   }
 }"""
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+# A page's own schema.org data (e.g. JobPosting with datePosted): read, never executed.
+READ_LD_JSON = """() => [...document.querySelectorAll('script[type="application/ld+json"]')]
+  .map((s) => s.textContent || "")"""
+# GET a same-origin address from inside the page, with the page's own session: the same
+# request the site's own search makes. Only a relative path is accepted (checked in Python).
+FETCH_JSON = """async (path) => {
+  const r = await fetch(path, { method: "GET", credentials: "same-origin" });
+  let data = null;
+  try { data = await r.json(); } catch (e) { data = null; }
+  return { status: r.status, data };
+}"""
 
 
 class BrowserError(RuntimeError):
@@ -595,8 +606,43 @@ class BrowserManager:
                 self._settle(page)
                 page.wait_for_timeout(1500)
                 text = page.inner_text("body") if page.locator("body").count() else ""
+                ld_json = [x[:20_000] for x in page.evaluate(READ_LD_JSON)[:5]]
                 return {"status": response.status if response else None, "url": page.url,
-                        "text": text[:limit]}  # fmt: skip
+                        "text": text[:limit], "ld_json": ld_json}  # fmt: skip
+            finally:
+                page.close()
+                if context is not self._w.persistent:
+                    context.close()
+
+        return self._call(op)
+
+    def fetch_json(self, page_url: str, path: str, allowed_prefix: str) -> dict[str, Any]:
+        """Open ``page_url`` (a logged-in page) and GET ``path`` from it, as the page's own
+        search does. ``path`` must be a relative path starting with ``allowed_prefix`` (from a
+        platform's selectors file): never another site, never anything but GET."""
+        if not path.startswith(allowed_prefix) or not allowed_prefix.startswith("/"):
+            raise BrowserError("NOT_FOUND", "That address is not an allowed search address")
+        if "//" in path or "\\" in path:
+            raise BrowserError("NOT_FOUND", "That address is not an allowed search address")
+
+        def op() -> dict[str, Any]:
+            self._launch()
+            context = self._w.persistent or self._w.browser.new_context()
+            page = context.new_page()
+            try:
+                page.set_default_timeout(self.timeout_ms)
+                response = page.goto(page_url, wait_until="domcontentloaded")
+                self._settle(page)
+                page.wait_for_timeout(1500)
+                out = page.evaluate(FETCH_JSON, path)
+                text = page.inner_text("body")[:3000] if page.locator("body").count() else ""
+                return {
+                    "status": response.status if response else None,
+                    "url": page.url,
+                    "text": text,
+                    "api_status": out.get("status"),
+                    "data": out.get("data"),
+                }
             finally:
                 page.close()
                 if context is not self._w.persistent:

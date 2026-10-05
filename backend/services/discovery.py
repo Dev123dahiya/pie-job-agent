@@ -309,7 +309,9 @@ class DiscoveryService:
         if _excluded(candidate.company, query.excluded_companies):
             stats["excluded_company"] += 1
         if query.max_age_hours is not None:
-            freshness = compute_freshness(candidate.posted_at, utcnow(), query.max_age_hours)
+            freshness = compute_freshness(
+                candidate.posted_at, utcnow(), query.max_age_hours, candidate.source
+            )
             stats[f"freshness_{freshness.value}"] += 1
         keys = DedupeKeys.for_candidate(candidate)
         log.log(
