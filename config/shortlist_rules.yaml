@@ -20,6 +20,10 @@ freshness:
 
 # Minimum Claude match score to shortlist (REQUIREMENTS 6, default 70). null disables it.
 min_match_score: 65
+
+# Minimum package (lakh rupees a year; the user's choice 2026-10-05: 10 LPA). Only a salary the
+# posting SHOWS can fail it; jobs without a shown salary are kept (most Indian postings).
+min_salary_lpa: 10
 # Optional; null disables it.
 max_missing_skills: null
 

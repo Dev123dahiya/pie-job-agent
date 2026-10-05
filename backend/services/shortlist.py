@@ -49,6 +49,9 @@ class ShortlistRules(BaseModel):
     max_missing_skills: int | None = Field(default=None, ge=0)
     require_analyzer_recommendation: bool = True
     analyze_stale_jobs_in_batch: bool = False
+    # Minimum package in lakh rupees a year. Only a salary the posting SHOWS can fail it; a job
+    # without a shown salary is never rejected for it (most Indian postings show none).
+    min_salary_lpa: float | None = Field(default=None, ge=0, le=500)
 
 
 def load_shortlist_rules(path: Path) -> ShortlistRules:
@@ -68,6 +71,15 @@ DIMENSION_WEIGHTS = {
     "salary_match": 5,
 }
 LEVEL_VALUE = {"strong": 1.0, "medium": 0.6, "unknown": 0.5, "weak": 0.0}
+
+
+def salary_rule(min_lpa: float, salary_max: float | None, currency: str | None) -> dict[str, Any]:
+    """The minimum-package rule: only a shown INR salary below the minimum fails it."""
+    if salary_max is None or (currency or "INR").upper() != "INR":
+        return _result("min_salary_lpa", True, f"salary not shown (minimum {min_lpa:g} LPA)")
+    shown = float(salary_max) / 100_000
+    ok = shown >= min_lpa
+    return _result("min_salary_lpa", ok, f"shows up to {shown:g} LPA vs minimum {min_lpa:g} LPA")
 
 
 def dimension_score(levels: dict[str, str]) -> int:
@@ -105,9 +117,17 @@ def exclusion_check(company: str | None, title: str, prefs: JobPreferences) -> s
     return None
 
 
-def evaluate(output: JobAnalysisOutput, rules: ShortlistRules) -> tuple[bool, list[dict[str, Any]]]:
-    """Apply every rule; the job is shortlisted only if all pass. Returns (decision, results)."""
+def evaluate(
+    output: JobAnalysisOutput,
+    rules: ShortlistRules,
+    salary_max: float | None = None,
+    salary_currency: str | None = None,
+) -> tuple[bool, list[dict[str, Any]]]:
+    """Apply every rule; the job is shortlisted only if all pass. Returns (decision, results).
+    ``salary_max`` is the posting's own top annual salary, when it shows one."""
     results: list[dict[str, Any]] = []
+    if rules.min_salary_lpa is not None:
+        results.append(salary_rule(rules.min_salary_lpa, salary_max, salary_currency))
     for dimension, rule in rules.dimensions.items():
         level = getattr(output, dimension)
         passed = level not in rule.reject

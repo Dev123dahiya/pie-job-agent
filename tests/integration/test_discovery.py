@@ -180,7 +180,8 @@ def test_location_matching_uses_configured_patterns(query: SearchQuery) -> None:
     assert location_matches("Gurgaon, Haryana", query) == "Gurugram"
     assert location_matches("New Delhi, India", query) == "Delhi NCR"
     assert location_matches("Remote - India", query) == "Remote"
-    assert location_matches("Remote - Bangalore, India", query) == "Remote"
+    # Bangalore comes first since 2026-10-05: a remote role based in Bangalore counts as one.
+    assert location_matches("Remote - Bangalore, India", query) == "Bengaluru"
     assert location_matches("Remote", query) is None  # bare "Remote" is usually US-only
     assert location_matches("Remote - US", query) is None
     assert location_matches(None, query) is None
@@ -189,7 +190,7 @@ def test_location_matching_uses_configured_patterns(query: SearchQuery) -> None:
 def test_location_scope_is_india_wide_with_ncr_first(query: SearchQuery) -> None:
     """Anywhere in India plus remote-India is in scope; NCR stays included (and is named
     first); places outside India are still rejected."""
-    assert query.locations == ["Gurugram", "Noida", "Delhi NCR", "Remote", "India"]
+    assert query.locations == ["Bengaluru", "Gurugram", "Noida", "Delhi NCR", "Remote", "India"]
     for ncr, name in [
         ("Gurugram, Haryana, India", "Gurugram"),
         ("Noida, Uttar Pradesh", "Noida"),
@@ -198,8 +199,6 @@ def test_location_scope_is_india_wide_with_ncr_first(query: SearchQuery) -> None
     ]:
         assert location_matches(ncr, query) == name
     for place in [
-        "Bengaluru, India",
-        "Bangalore",
         "Hyderabad, Telangana",
         "Pune",
         "Chennai",
@@ -209,6 +208,8 @@ def test_location_scope_is_india_wide_with_ncr_first(query: SearchQuery) -> None
         "India",
     ]:
         assert location_matches(place, query) == "India", place
+    # Bangalore is searched first since 2026-10-05.
+    assert location_matches("Bengaluru, India", query) == "Bengaluru"
     assert location_matches("India (Remote)", query) == "Remote"
     for outside in [
         "Singapore",
@@ -226,4 +227,4 @@ def test_preferred_locations_keep_ncr_first_and_add_india(sources_config: JobSou
     """The shipped search config (kept in sync with the profile by the Settings page). Tests
     never read the user's real profile."""
     locations = sources_config.search.locations
-    assert locations[:3] == ["Gurugram", "Noida", "Delhi NCR"] and "India" in locations
+    assert locations[:4] == ["Bengaluru", "Gurugram", "Noida", "Delhi NCR"] and "India" in locations

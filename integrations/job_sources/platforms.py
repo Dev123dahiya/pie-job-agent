@@ -19,7 +19,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from backend.core.normalize import extract_experience, extract_skills
+from backend.core.normalize import extract_experience, extract_skills, parse_inr_lakh_range
 from integrations.job_sources.base import (
     JobCandidate,
     JobSource,
@@ -166,7 +166,13 @@ class PlatformSearchSource(JobSource):
         )
         posted_at, kind = self._posted(p)
         experience = (p.get("experience") or "").strip() or extract_experience(description)
+        # Only a salary the platform states per year ("4-8 Lacs P.A.") is stored as numbers.
+        pay = parse_inr_lakh_range(str(p.get("salary") or ""))
         return JobCandidate(
+            salary_min=pay[0] if pay else None,
+            salary_max=pay[1] if pay else None,
+            salary_currency="INR" if pay else None,
+            salary_period="YEAR" if pay else None,
             source=self.name,
             source_job_id=raw.source_job_id,
             company=(p.get("company") or "").strip() or None,

@@ -8,6 +8,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import Select, or_, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -105,6 +106,10 @@ def has_outdated_analysis(db: Session, job_id: uuid.UUID, current: str) -> bool:
         .limit(1)
     )
     return latest is None or _analysis_profile(latest) != current
+
+
+def _num(value: object) -> float | None:
+    return float(value) if isinstance(value, (int, float, Decimal)) else None
 
 
 def build_analysis_job(job: Job, now: datetime, max_age_hours: int) -> AnalysisJob:
@@ -222,7 +227,9 @@ def analyze_job(db: Session, job: Job, ctx: AnalysisContext, log: RunLogger) -> 
         db.commit()
         raise AnalysisFailedError(job.last_error)
 
-    shortlisted, rule_results = evaluate(output, ctx.rules)
+    shortlisted, rule_results = evaluate(
+        output, ctx.rules, _num(job.salary_max), job.salary_currency
+    )
     profile_hash = profile_fingerprint(ctx.profile)
     analysis = JobAnalysis(
         job_id=job.id,
@@ -575,7 +582,12 @@ def reapply_shortlist_rules(
             missing_skills=analysis.missing_skills or [],
             should_shortlist=analysis.should_shortlist,
         )
-        shortlisted, results = evaluate(output, rules)  # type: ignore[arg-type]
+        shortlisted, results = evaluate(
+            output,  # type: ignore[arg-type]
+            rules,
+            _num(job.salary_max),
+            job.salary_currency,
+        )
         counts["checked"] += 1
         analysis.match_score = combined_score(
             claude, {d: getattr(output, d) for d in DIMENSION_WEIGHTS}

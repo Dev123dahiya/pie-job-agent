@@ -68,3 +68,12 @@ def test_shortlisted_foundit_jobs_go_to_manual_apply(db: Session) -> None:
     route_manual_only(db, naukri)
     assert found.pipeline_state is JobPipelineState.MANUAL_APPLY
     assert naukri.pipeline_state is JobPipelineState.SHORTLISTED
+
+
+def test_minimum_package_rejects_only_a_shown_salary_below_it() -> None:
+    from backend.services.shortlist import salary_rule
+
+    assert salary_rule(10, None, None)["passed"] is True  # not shown: never rejected
+    assert salary_rule(10, 800_000, "INR")["passed"] is False  # shows up to 8 LPA
+    assert salary_rule(10, 1_200_000, "INR")["passed"] is True
+    assert salary_rule(10, 50_000, "USD")["passed"] is True  # other currency: not judged

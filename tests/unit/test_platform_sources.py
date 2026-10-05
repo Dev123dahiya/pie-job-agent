@@ -354,3 +354,22 @@ def test_foundit_keeps_only_jobs_it_does_not_copy_from_sites_pie_searches(tmp_pa
     assert job.url == "https://www.foundit.in/job/ai-engineer-acme-gurugram-69257901"
     assert job.posted_at_kind == "created" and job.posted_at == NOW - timedelta(days=1)
     assert job.description == "Build LLM apps" and job.experience_required == "0-2 Years"
+
+
+def test_indian_salary_wording_is_read_only_when_the_period_is_stated() -> None:
+    from backend.core.normalize import parse_inr_lakh_range
+
+    assert parse_inr_lakh_range("4-8 Lacs P.A.") == (400_000, 800_000)
+    assert parse_inr_lakh_range("10 - 14 LPA") == (1_000_000, 1_400_000)
+    assert parse_inr_lakh_range("12 Lakhs PA") == (1_200_000, 1_200_000)
+    for unclear in ("Not disclosed", "8 Lacs", "15000-20000 a month", ""):
+        assert parse_inr_lakh_range(unclear) is None
+
+
+def test_naukri_shown_salary_is_stored_as_annual_rupees(tmp_path: Path) -> None:
+    browser = FakeBrowser([{"status": 200, "url": "u", "text": "",
+                            "items": [naukri_card(1, salary="12-16 Lacs P.A.")]}])  # fmt: skip
+    src = source(NaukriSource, browser, tmp_path)
+    [raw] = src.search_jobs(src.plan(query())[0], query())
+    job = src.normalize_job(raw)
+    assert (job.salary_min, job.salary_max, job.salary_currency) == (1_200_000, 1_600_000, "INR")

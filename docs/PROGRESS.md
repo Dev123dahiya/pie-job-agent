@@ -214,6 +214,12 @@ after Phase C".
   PIE does not get around bot checks, so Indeed was removed (source, selectors, login helper
   entry, read_window_data op, config, tests). No Indeed jobs had been stored; nothing applied.
   The local browser profile data/browser/indeed is left for the user to delete.
+- 2026-10-05 Focus on Bangalore + high package (user): Bengaluru is the first search location
+  (NCR kept after it; Naukri searches 12, LinkedIn 8 so NCR is still covered) and the first
+  preferred location in the profile (backup in data/backups/config). New shortlist rule
+  min_salary_lpa: 10 - only a SHOWN salary below 10 LPA rejects; jobs without a shown salary
+  are kept. Naukri "x-y Lacs P.A." / "LPA" salaries are now stored as annual INR (never
+  guessed). Apply order: shown salaries first, highest first.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 

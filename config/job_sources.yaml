@@ -33,6 +33,7 @@ search:
   # location it matches, so the preferred NCR places come first; "India" then covers the rest
   # of the country (it also matches NCR postings, so NCR can never fall out of scope).
   locations:
+    - Bengaluru  # first: the user's focus since 2026-10-05
     - Gurugram
     - Noida
     - Delhi NCR
@@ -40,6 +41,7 @@ search:
     - India
   # Regex patterns (case-insensitive) matched against a posting's location text.
   location_patterns:
+    Bengaluru: ["bengaluru", "bangalore"]
     Gurugram: ["gurugram", "gurgaon"]
     Noida: ["noida"]
     Delhi NCR: ["\\bdelhi\\b", "\\bncr\\b", "faridabad", "ghaziabad"]
@@ -136,7 +138,7 @@ sources:
   - name: naukri
     type: naukri
     enabled: true
-    max_searches: 8
+    max_searches: 12  # Bangalore first, then NCR (user, 2026-10-05)
     pages: 1
     max_details: 15
     request_delay_seconds: 8.0
@@ -144,7 +146,7 @@ sources:
   - name: linkedin
     type: linkedin
     enabled: true
-    max_searches: 5
+    max_searches: 8  # Bangalore first, then NCR (user, 2026-10-05)
     pages: 1
     max_details: 10
     request_delay_seconds: 10.0

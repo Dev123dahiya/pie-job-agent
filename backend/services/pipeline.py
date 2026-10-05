@@ -332,10 +332,12 @@ class PipelineService:
                deps: PipelineDeps, report: Report) -> bool:  # fmt: skip
         live = req.mode in ("review", "auto")
         auto = req.mode == "auto"
+        # Jobs that show a salary come first, highest first (the minimum-package rule already
+        # removed shown salaries below the minimum); then the rest, oldest first.
         candidates = db.scalars(
             select(Job)
             .where(Job.pipeline_state == JobPipelineState.READY_TO_APPLY)
-            .order_by(Job.updated_at)
+            .order_by(Job.salary_max.is_(None), Job.salary_max.desc(), Job.updated_at)
         ).all()
         done = 0
         for job in candidates:
