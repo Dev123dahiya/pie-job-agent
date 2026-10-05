@@ -81,6 +81,11 @@ FETCH_JSON = """async (path) => {
 LI_SENT = re.compile(r"application (was )?sent|application submitted", re.I)
 
 
+def _css_text(value: str) -> str:
+    """A value safe inside a double-quoted CSS attribute selector."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 class BrowserError(RuntimeError):
     """A browser operation failed (navigation, timeout, crash, missing element...)."""
 
@@ -438,7 +443,17 @@ class BrowserManager:
                     )
                     if stand_in.count() != 1:
                         raise BrowserError("NOT_FOUND", f"Option {option} of {field_id} is hidden")
+                    question = stand_in.get_attribute("aria-label") or ""
+                    text = " ".join(stand_in.inner_text().split())
                     stand_in.click()
+                    live.page.wait_for_timeout(500)
+                    # LinkedIn marks the drawn option (aria-checked) and redraws the group, so
+                    # PIE's own markers are gone: find the chosen option again by its text.
+                    chosen = frame.locator("[role=radio][aria-checked='true'], "
+                                           "[role=checkbox][aria-checked='true']")  # fmt: skip
+                    if question:
+                        chosen = chosen.and_(frame.locator(f'[aria-label="{_css_text(question)}"]'))
+                    return chosen.filter(has_text=text).count() > 0 if text else False
                 return bool(target.is_checked())
             loc = frame.locator(f'[data-pie-field="{field_id}"]')
             if loc.count() != 1:
@@ -825,6 +840,8 @@ class BrowserManager:
             live.http_status = response.status if response else None
             self._settle(page)
             button = page.get_by_role("button", name=button_name, exact=True).first
+            with contextlib.suppress(Exception):  # the job page draws its buttons late
+                button.wait_for(state="visible", timeout=10_000)
             if button.count() == 0:
                 url_parts, texts = logged_out
                 body = page.inner_text("body").lower() if page.locator("body").count() else ""

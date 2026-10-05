@@ -22,6 +22,17 @@ PAGE = """<!doctype html><html><head><title>Job | LinkedIn</title></head><body>
 <div id="modal-outlet"></div>
 <script>
 const CASE = "%CASE%";
+const SENT = CASE === "submitted" ? "Application submitted" : "Your application was sent to Acme";
+// Like LinkedIn: the drawn option gets aria-checked; the hidden input is NOT checked.
+function pick(el) {
+  for (const r of el.parentElement.querySelectorAll("[role=radio]")) {
+    r.setAttribute("aria-checked", "false");
+  }
+  el.setAttribute("aria-checked", "true");
+  // LinkedIn redraws the group after a choice: any marks PIE put on the elements are gone.
+  const group = el.closest("fieldset");
+  group.innerHTML = group.innerHTML.replace(/ data-pie-[a-z]+="[^"]*"/g, "");
+}
 const STEPS = [
   (CASE === "quota" ? `<p>You've reached the Easy Apply application limit for today.</p>` : "") +
   `<h3>Contact info</h3>
@@ -43,7 +54,7 @@ const STEPS = [
         <fieldset role="radiogroup">${["Yes", "No"].map((o, i) => `
           <div role="radio" tabindex="0" aria-checked="false" style="padding:4px"
                aria-label="Have you completed the following level of education: Bachelor's Degree?"
-               onclick="this.querySelector('input').checked = true">
+               onclick="pick(this)">
             <div><input id="deg${i}" type="radio" name="radio-group-deg"
                         style="position:absolute;opacity:0;width:0;height:0">
                  <label for="deg${i}"></label></div>
@@ -71,8 +82,8 @@ function render() {
   const n = root.getElementById("next");
   if (n) n.onclick = () => {
     // Like LinkedIn: a required question left empty keeps the form on this step.
-    const deg = root.querySelectorAll('input[name="radio-group-deg"]');
-    if (deg.length && ![...deg].some((i) => i.checked)) return;
+    const deg = root.querySelectorAll('[role=radio][aria-label*="Bachelor"]');
+    if (deg.length && ![...deg].some((r) => r.getAttribute("aria-checked") === "true")) return;
     if (CASE !== "stuck") { step++; render(); }
   };
   if (CASE === "lateq" && step === 1) {  // the question is drawn after the step itself
@@ -85,7 +96,7 @@ function render() {
   if (s) s.onclick = async () => {
     await fetch("/submit/" + CASE, { method: "POST", body: "{}" });
     root.innerHTML = `<div class="panel"><h2>Apply to Acme</h2>
-      <p>${CASE === "submitted" ? "Application submitted" : "Your application was sent to Acme"}</p></div>`;
+      <p>${SENT}</p></div>`;
   };
   root.getElementById("dismiss").onclick = () => {
     root.innerHTML = `<div class="panel"><h2>Discard application?</h2>
