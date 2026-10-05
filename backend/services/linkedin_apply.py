@@ -204,7 +204,8 @@ def submit(ctx: svc.ExecContext, session: BrowserSession) -> dict[str, Any]:
             "it and run review mode again.",
         )
     attempt = SubmissionAttempt(
-        idempotency_key=svc.submission_key(app, job, 0), application_id=app.id,
+        idempotency_key=svc.submission_key(app, job, svc.next_generation(ctx.db, app)),
+        application_id=app.id,
         session_id=session.id, outcome=SubmissionOutcome.PENDING,
     )  # fmt: skip
     ctx.db.add(attempt)

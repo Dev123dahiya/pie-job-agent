@@ -3446,3 +3446,90 @@ def test_instahyre_job_already_applied_is_withdrawn_not_clicked(
     _start(client, steps=["apply"], platforms=["instahyre"], mode="review",
            confirmation=ih["review_confirmation"]["phrase"])  # fmt: skip
     assert job_state(db, instahyre_job) is S.WITHDRAWN and fake.clicks == []
+
+
+def test_a_covered_apply_button_is_not_clicked_and_nothing_counts(
+    client: Any, api: Any, db: Session, live_settings: Settings, instahyre_job: Any
+) -> None:
+    from backend.services.limits import usage
+
+    class Covered(FakeInstahyreJobPage):
+        def click_platform_apply(self, *args: Any, **kw: Any) -> Any:
+            raise BrowserError("NOT_CLICKED", "Something covers the apply button (DIV.loader)")
+
+    fake = Covered(button="Apply now")
+    _fake_naukri(client, fake)
+    api["settings"] = live_settings
+    opts = client.get("/api/runs/options").json()
+    ih = next(p for p in opts["platforms"] if p["platform"] == "instahyre")
+    _start(client, steps=["apply"], platforms=["instahyre"], mode="review",
+           confirmation=ih["review_confirmation"]["phrase"])  # fmt: skip
+    [item] = client.get("/api/review").json()["items"]
+    out = client.post(f"/api/review/{item['session_id']}/approve",
+                      json={"statement": item["confirmation_statement"]}).json()  # fmt: skip
+    assert out["submitted"] is False and out["outcome"] == "NOT_CLICKED", out
+    assert job_state(db, instahyre_job) is S.READY_TO_APPLY  # back in the queue, retryable
+    assert db.scalar(select(func.count()).select_from(SubmissionAttempt)) == 0
+    used = {
+        r.platform: r.used for r in usage(db, live_settings.automation_path, live_settings.timezone)
+    }
+    assert used["instahyre"] == 0 and used["total"] == 0
+
+
+def test_after_a_confirmed_not_sent_the_same_job_can_be_applied_again_once(
+    client: Any, api: Any, db: Session, live_settings: Settings, instahyre_job: Any
+) -> None:
+    fake = FakeInstahyreJobPage(button="Apply now", after="Apply now", applied=False)
+    _fake_naukri(client, fake)
+    api["settings"] = live_settings
+    phrase = next(p for p in client.get("/api/runs/options").json()["platforms"]
+                  if p["platform"] == "instahyre")["review_confirmation"]["phrase"]  # fmt: skip
+
+    def review_and_approve() -> Any:
+        _start(client, steps=["apply"], platforms=["instahyre"], mode="review", confirmation=phrase)
+        [item] = client.get("/api/review").json()["items"]
+        statement = {"statement": item["confirmation_statement"]}
+        return item, client.post(f"/api/review/{item['session_id']}/approve", json=statement).json()
+
+    item, first = review_and_approve()
+    assert first["outcome"] == "AMBIGUOUS" and len(fake.clicks) == 1  # unclear: never re-clicked
+    app_id = _app_id(db, instahyre_job)
+    client.post(f"/api/applications/{app_id}/sessions/{item['session_id']}/resolve",
+                json={"submitted": False, "note": "Instahyre still shows Apply now"})  # fmt: skip
+    assert job_state(db, instahyre_job) is S.READY_TO_APPLY
+    fake.after, fake.applied = "Application sent!", True
+    _, second = review_and_approve()
+    assert second["submitted"] is True and len(fake.clicks) == 2
+
+
+def _one_click_page(cover: bool) -> str:
+    from urllib.parse import quote
+
+    overlay = (
+        '<div style="position:fixed;inset:0;z-index:9;background:rgba(0,0,0,.2)"></div>'
+        if cover
+        else ""
+    )
+    html = (
+        "<html><body><div class='apply-button'><a><button class='btn' "
+        "onclick=\"window.clicks=(window.clicks||0)+1;this.textContent='Application sent!'\">"
+        f"Apply now</button></a></div>{overlay}</body></html>"
+    )
+    return "data:text/html," + quote(html)
+
+
+def test_one_click_apply_clicks_once_and_sees_the_applied_button(browser: BrowserManager) -> None:
+    out = browser.click_platform_apply(
+        _one_click_page(cover=False), ".apply-button button", "Apply now", ".modal.in",
+        "Application sent!",
+    )  # fmt: skip
+    assert out["applied"] is True and out["button_after"] == "Application sent!"
+
+
+def test_a_button_that_stays_covered_is_never_clicked(browser: BrowserManager) -> None:
+    with pytest.raises(BrowserError) as err:
+        browser.click_platform_apply(
+            _one_click_page(cover=True), ".apply-button button", "Apply now", ".modal.in",
+            "Application sent!",
+        )  # fmt: skip
+    assert err.value.kind == "NOT_CLICKED"

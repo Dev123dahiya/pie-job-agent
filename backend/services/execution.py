@@ -432,6 +432,23 @@ def find_duplicate(db: Session, job: Job, app: Application) -> str | None:
     return None
 
 
+def next_generation(db: Session, app: Application) -> int:
+    """A new submission key only after the user confirmed every earlier attempt was NOT sent
+    (USER_NOT_SUBMITTED); any other earlier attempt keeps the same key, so the database
+    itself refuses a second submission."""
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(SubmissionAttempt)
+            .where(
+                SubmissionAttempt.application_id == app.id,
+                SubmissionAttempt.outcome == SubmissionOutcome.USER_NOT_SUBMITTED,
+            )
+        )
+        or 0
+    )
+
+
 def submission_key(app: Application, job: Job, generation: int) -> str:
     target = job.canonical_url or job.application_url or job.url
     raw = f"{app.id}|{target}|submit|{generation}"
@@ -1334,19 +1351,8 @@ def submit(ctx: ExecContext, session_id: uuid.UUID) -> dict[str, Any]:
     ):
         raise ExecutionError("PRECONDITION_FAILED", "The form changed since it was prepared")
 
-    generation = (
-        ctx.db.scalar(
-            select(func.count())
-            .select_from(SubmissionAttempt)
-            .where(
-                SubmissionAttempt.application_id == app.id,
-                SubmissionAttempt.outcome == SubmissionOutcome.USER_NOT_SUBMITTED,
-            )
-        )
-        or 0
-    )
     attempt = SubmissionAttempt(
-        idempotency_key=submission_key(app, job, generation),
+        idempotency_key=submission_key(app, job, next_generation(ctx.db, app)),
         application_id=app.id,
         session_id=session.id,
         outcome=SubmissionOutcome.PENDING,

@@ -238,7 +238,7 @@ def build_home(
             platform="instahyre",
             mode="dry-run",
             built=True,
-            note="Search and one-click \"Apply now\". Auto mode unlocks after a dry run and one "
+            note='Search and one-click "Apply now". Auto mode unlocks after a dry run and one '
             "application you approve.",
             login=(logins.get("instahyre") or {}).get("state", "never"),
             login_command="python -m backend.scripts.login instahyre",

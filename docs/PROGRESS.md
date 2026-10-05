@@ -184,7 +184,14 @@ after Phase C".
 - 2026-10-05 Instahyre step 3 (apply) built: "Apply now" is one click (page code:
   update_interest -> "Application sent!"), so naukri_apply is now the shared one-click module
   (ONE_CLICK: naukri, instahyre). Review queue, auto mode, daily auto-apply include Instahyre.
-  Live unlock still needed: one dry run + one application the user approves.
+  2026-10-05 LIVE: discover found 17 new (1 fresh in 14 days), Meesho "SDE I - AI" shortlisted
+  (68); dry run OK; user approved; first two clicks never happened (1: page still loading,
+  2: Playwright refused because the button's wrapper <a> "intercepts pointer events"), both
+  checked on the page ("Apply now" still there) and recorded as not sent; fix: trial click
+  first, press the button itself only when the page shows it on top, otherwise stop without
+  clicking (NOT_CLICKED, attempt dropped); retries after a confirmed "not sent" get a new
+  submission key on every platform. Third try: "Application sent!" - CONFIRMED.
+  Auto mode is now unlocked on Instahyre (and it is in the daily auto-apply).
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 

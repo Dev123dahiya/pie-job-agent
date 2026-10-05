@@ -56,6 +56,13 @@ RENDER_ALL = """async (card) => {
   }
 }"""
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+# What sits on top of an element's centre, if it is not the element itself (or inside it).
+COVERED_BY = """(el) => {
+  const r = el.getBoundingClientRect();
+  const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+  if (!top || el === top || el.contains(top)) return null;
+  return (top.tagName + "." + String(top.className || "")).slice(0, 120);
+}"""
 # A page's own schema.org data (e.g. JobPosting with datePosted): read, never executed.
 READ_LD_JSON = """() => [...document.querySelectorAll('script[type="application/ld+json"]')]
   .map((s) => s.textContent || "")"""
@@ -74,7 +81,9 @@ class BrowserError(RuntimeError):
 
     def __init__(self, kind: str, message: str) -> None:
         super().__init__(message)
-        self.kind = kind  # NAVIGATION | TIMEOUT | CRASHED | NOT_FOUND | UPLOAD | UNAVAILABLE
+        # NAVIGATION | TIMEOUT | CRASHED | NOT_FOUND | UPLOAD | UNAVAILABLE | NOT_CLICKED (stopped
+        # before an irreversible click: nothing was sent)
+        self.kind = kind
 
 
 @dataclass
@@ -197,7 +206,7 @@ class BrowserManager:
                 fut.set_exception(exc)
             except Exception as exc:  # a Playwright error: a structured browser failure
                 kind = "TIMEOUT" if "Timeout" in type(exc).__name__ else "BROWSER"
-                fut.set_exception(BrowserError(kind, f"{type(exc).__name__}: {exc}"[:500]))
+                fut.set_exception(BrowserError(kind, f"{type(exc).__name__}: {exc}"[:1500]))
             except BaseException as exc:  # delivered to the caller
                 fut.set_exception(exc)
         self._teardown()
@@ -665,13 +674,44 @@ class BrowserManager:
             page.set_default_timeout(self.timeout_ms)
             page.goto(url, wait_until="domcontentloaded")
             self._settle(page)
+            page.wait_for_timeout(2500)  # pages finish drawing (and drop loaders) after load
             target = page.locator(button).first
             if target.count() == 0:
-                raise BrowserError("NOT_FOUND", "The apply button is not on the job page")
+                raise BrowserError("NOT_CLICKED", "The apply button is not on the job page")
             before = " ".join(target.inner_text().split())
             if before.lower() != expect_text.lower():
-                raise BrowserError("NOT_FOUND", f"The button reads '{before}', not '{expect_text}'")
-            target.click()
+                raise BrowserError(
+                    "NOT_CLICKED", f"The button reads '{before}', not '{expect_text}'"
+                )
+            # Something on top of the button (a loader, a pop-up) would swallow the click:
+            # wait for it to go; if it stays, stop WITHOUT clicking (nothing is sent).
+            target.scroll_into_view_if_needed()
+            covered: str | None = None
+            for _ in range(15):
+                covered = target.evaluate(COVERED_BY)
+                if covered is None:
+                    break
+                page.wait_for_timeout(1000)
+            if covered is not None:
+                raise BrowserError(
+                    "NOT_CLICKED", f"Something covers the apply button ({covered}); not clicked"
+                )
+            # A trial click runs every check without clicking. Instahyre wraps its button in an
+            # <a> that trips Playwright's hit test although the page puts the button itself
+            # on top (checked above): then the button itself is pressed, once.
+            try:
+                target.click(timeout=8_000, trial=True)
+                trial_error = None
+            except Exception as exc:
+                trial_error = str(exc)
+            if trial_error is None:
+                target.click(timeout=15_000)
+            elif "intercepts pointer events" in trial_error and target.evaluate(COVERED_BY) is None:
+                target.dispatch_event("click")
+            else:
+                raise BrowserError(
+                    "NOT_CLICKED", f"The apply button could not be clicked: {trial_error[:300]}"
+                )
             # The site may take a while to turn the button into "Applied" (the old button
             # can even be replaced): wait for that before judging what happened.
             applied = page.locator("button").filter(

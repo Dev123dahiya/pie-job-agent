@@ -187,7 +187,8 @@ def submit(
         raise svc.ExecutionError("DAILY_LIMIT_REACHED", reason)
 
     attempt = SubmissionAttempt(
-        idempotency_key=svc.submission_key(app, job, 0), application_id=app.id,
+        idempotency_key=svc.submission_key(app, job, svc.next_generation(db, app)),
+        application_id=app.id,
         session_id=session.id, outcome=SubmissionOutcome.PENDING,
     )  # fmt: skip
     db.add(attempt)
@@ -198,8 +199,19 @@ def submit(
             sel.APPLIED_BUTTON_TEXT,
         )  # fmt: skip
     except BrowserError as exc:
+        if exc.kind == "NOT_CLICKED":
+            # Stopped BEFORE the click (button covered or changed): certainly nothing was
+            # sent, so the attempt is dropped and the job goes back in the queue.
+            db.delete(attempt)
+            session.state, session.closed_at = BrowserSessionState.CLOSED, utcnow()
+            session.current_step = f"Not clicked: {exc}"[:500]
+            session.errors = [*(session.errors or []), {"step": "apply", "error": str(exc)[:500]}]
+            _move(db, job, app, S.READY_TO_APPLY, f"{sel.PLATFORM}_not_clicked",
+                  f"PIE did not click {sel.APPLY_TEXT} ({exc}); nothing was sent")  # fmt: skip
+            db.commit()
+            return {"submitted": False, "outcome": "NOT_CLICKED", "state": session.state.value}
         attempt.outcome = SubmissionOutcome.AMBIGUOUS
-        attempt.evidence = {"error": str(exc)[:500]}
+        attempt.evidence = {"error": str(exc)[:2000]}
         message = (
             f"The {sel.APPLY_TEXT} click did not complete ({exc}). Whether {sel.NAME} received "
             f"it is UNKNOWN - PIE will not click again. Check your applied jobs on {sel.NAME}, "
