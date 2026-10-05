@@ -3550,3 +3550,28 @@ def test_a_lost_linkedin_login_keeps_the_jobs_queued_and_stops(
     assert job_state(db, second) is S.READY_TO_APPLY  # LinkedIn stopped: not even opened
     assert load_status(tmp_path / "data")["linkedin"]["state"] == "expired"
     assert li_site.submissions == []
+
+
+def test_linkedin_hidden_radio_questions_are_asked_then_answered(
+    client: Any, api: Any, db: Session, li_job: Any, li_site: Any
+) -> None:
+    job_id = li_job("degree")
+    run = _li_run(client)
+    assert run["report"]["counts"] == {"linkedin_needs_input": 1}, run["report"]["failures"]
+    paused = client.get("/api/needs-input").json()["jobs"]
+    [question] = [q for j in paused for q in j["questions"] if "Bachelor" in q["question"]]
+    assert question["options"] == ["Yes", "No"]
+    saved = client.post("/api/needs-input/answers", json={"answers": [
+        {"question_key": question["question_key"], "question": question["question"],
+         "answer": "Yes"}]})  # fmt: skip
+    assert saved.status_code == 200, saved.text
+    run = _li_run(client)
+    assert run["report"]["counts"] == {"linkedin_dry_run_complete": 1}, run["report"]
+    session = db.scalars(
+        select(BrowserSession)
+        .where(BrowserSession.job_id == job_id)
+        .order_by(BrowserSession.created_at.desc())
+    ).first()
+    assert session is not None
+    assert any(f.get("key") == question["question_key"] for f in session.filled_fields or [])
+    assert li_site.submissions == []

@@ -99,7 +99,11 @@ EXTRACT_FORM = r"""
     const tag = el.tagName.toLowerCase();
     const type = tag === 'input' ? (el.getAttribute('type') || 'text').toLowerCase() : tag;
     if (['hidden', 'submit', 'button', 'reset', 'image'].includes(type)) continue;
-    if (el.disabled || !visible(el)) continue;
+    // Custom radios/checkboxes hide the real input and draw a stand-in (role=radio, or the
+    // label) over it (LinkedIn, 2026-10-05): the stand-in decides visibility and the option text.
+    const proxy = (type === 'radio' || type === 'checkbox')
+      ? (el.closest('[role=radio], [role=checkbox], label') || el) : el;
+    if (el.disabled || !visible(proxy)) continue;
     uiText.push(localText(el));
     const grouped = (type === 'radio' || type === 'checkbox') && el.name &&
       doc.querySelectorAll(`input[name="${CSS.escape(el.name)}"]`).length > 1;
@@ -108,7 +112,12 @@ EXTRACT_FORM = r"""
       if (!g) {
         const c = container(el);
         const legend = c?.querySelector('legend');
-        const question = clean(legend?.innerText || c?.getAttribute('aria-label') ||
+        // No legend: the question is often the short text just before the group.
+        const prev = c?.previousElementSibling;
+        const before = prev && !prev.querySelector('input, select, textarea') &&
+          (prev.innerText || '').trim().length <= 300 ? prev.innerText : '';
+        const question = clean(legend?.innerText || before || c?.getAttribute('aria-label') ||
+          (proxy !== el ? proxy.getAttribute('aria-label') : '') ||
           (c?.innerText || '').split('\n')[0]);
         g = groups[el.name] = {
           id: `${prefix}${n++}`, kind: type === 'radio' ? 'radio' : 'checkbox_group',
@@ -120,9 +129,10 @@ EXTRACT_FORM = r"""
       }
       el.setAttribute('data-pie-field', g.id);
       el.setAttribute('data-pie-option', String(g.options.length));
-      g.options.push({ label: labelOf(el), value: el.value });
+      const optionText = labelOf(el) || (proxy !== el ? clean(proxy.innerText) : '');
+      g.options.push({ label: optionText, value: el.value });
       g.required = g.required || isRequired(el, g.label);
-      if (el.checked) { g.has_value = true; g.selected_label = labelOf(el); }
+      if (el.checked) { g.has_value = true; g.selected_label = optionText; }
       continue;
     }
     const id = `${prefix}${n++}`;

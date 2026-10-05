@@ -226,6 +226,13 @@ after Phase C".
   "Join LinkedIn"). Fix: li_open detects the signed-out page (BrowserError LOGIN); the job
   stays READY_TO_APPLY, LinkedIn's login status becomes expired, the run stops on LinkedIn.
   The 5 jobs were requeued; waiting for the user to log in to LinkedIn again.
+- 2026-10-05 After re-login: NxTreasury (AI Engineer) SUBMITTED in auto mode; Intellicredence
+  paused ("years of experience in total?"); TantranZm + Emagesoft got stuck on a hidden-radio
+  Yes/No question; Hello Parent has no Easy Apply any more. Fixes: the form reader treats a
+  hidden radio as visible when its drawn stand-in (role=radio / label) is, takes the option
+  text from it and the question from the text before the group; filling clicks the stand-in.
+  A LinkedIn job paused for answers goes back to READY_TO_APPLY once they are all saved
+  (RESTART_DOMAINS), instead of staying paused.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 

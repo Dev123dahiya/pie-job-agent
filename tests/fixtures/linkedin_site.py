@@ -37,7 +37,17 @@ const STEPS = [
    <label for="notice">Notice period</label><input id="notice" required>` +
    (CASE === "unknown"
      ? `<label for="k8s">How many years of Kubernetes experience do you have?</label>
-        <input id="k8s" required>` : ""),
+        <input id="k8s" required>` : "") +
+   (CASE === "degree"  // the live markup (2026-10-05): hidden inputs under drawn role=radio
+     ? `<div><p>Have you completed the following level of education: Bachelor's Degree?*</p>
+        <fieldset role="radiogroup">${["Yes", "No"].map((o, i) => `
+          <div role="radio" tabindex="0" aria-checked="false" style="padding:4px"
+               aria-label="Have you completed the following level of education: Bachelor's Degree?"
+               onclick="this.querySelector('input').checked = true">
+            <div><input id="deg${i}" type="radio" name="radio-group-deg"
+                        style="position:absolute;opacity:0;width:0;height:0">
+                 <label for="deg${i}"></label></div>
+            <div><p>${o}</p></div></div>`).join("")}</fieldset></div>` : ""),
   `<h3>Review your application</h3><p>Check everything before you submit.</p>`,
 ];
 let step = 0;

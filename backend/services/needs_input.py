@@ -200,6 +200,11 @@ def save_answers(
     return {"saved": len(checked), "requeued": requeued}
 
 
+# Platforms whose application form is opened again from the start after a pause (PIE does
+# not keep it open while waiting for the user's answers).
+RESTART_DOMAINS = frozenset({"linkedin.com"})
+
+
 def requeue_ready_jobs(
     db: Session, settings: Settings, profile: UserProfile, keys: list[str]
 ) -> list[str]:
@@ -217,6 +222,16 @@ def requeue_ready_jobs(
             missing = {m.get("question_key") for m in session.missing_answers or []}
             saved = {a.question_key for a in saved_global_answers(db)}
             if missing and missing <= saved:
+                if session.target_domain in RESTART_DOMAINS:
+                    # A LinkedIn form is not kept open while it waits: the next run opens it
+                    # again from the start and fills the saved answers.
+                    session.state, session.closed_at = BrowserSessionState.CLOSED, utcnow()
+                    session.current_step = "Closed: your answers are saved; the job is queued"
+                    job.pipeline_state = S.READY_TO_APPLY
+                    app.requires_user_input, app.user_action_required = False, None
+                    _event(db, job, app, keys, "Answers saved; the job is back in the queue")
+                    requeued.append(str(job.id))
+                    continue
                 app.next_action = "Your answers are saved: resume the browser session"
                 _event(db, job, app, keys, "Answers saved; ready to resume the browser session")
                 requeued.append(str(job.id))

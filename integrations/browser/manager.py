@@ -425,7 +425,15 @@ class BrowserManager:
                 target = frame.locator(f'[data-pie-field="{field_id}"][data-pie-option="{option}"]')
                 if target.count() != 1:
                     raise BrowserError("NOT_FOUND", f"Option {option} of {field_id} not found")
-                target.check()
+                if target.is_visible():
+                    target.check()
+                else:  # a hidden input under a drawn stand-in (role=radio / label): click that
+                    stand_in = target.locator(
+                        "xpath=ancestor::*[@role='radio' or @role='checkbox' or self::label][1]"
+                    )
+                    if stand_in.count() != 1:
+                        raise BrowserError("NOT_FOUND", f"Option {option} of {field_id} is hidden")
+                    stand_in.click()
                 return bool(target.is_checked())
             loc = frame.locator(f'[data-pie-field="{field_id}"]')
             if loc.count() != 1:
