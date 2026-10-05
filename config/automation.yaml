@@ -8,6 +8,7 @@ daily_limits:
   naukri: 15
   linkedin: 5
   company_site: 10
+  instahyre: 5
 
 # Claude model per task (REQUIREMENTS 6): a cheaper model scores many jobs; the strongest one
 # tailors resumes and answers application questions. Used by the Claude Code CLI and the API.

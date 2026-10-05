@@ -1,4 +1,10 @@
-export type Limits = { total: number; naukri: number; linkedin: number; company_site: number };
+export type Limits = {
+  total: number;
+  naukri: number;
+  linkedin: number;
+  company_site: number;
+  instahyre: number;
+};
 
 export type CurrentSettings = {
   keywords: string[];

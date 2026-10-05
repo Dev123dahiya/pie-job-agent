@@ -178,6 +178,9 @@ after Phase C".
   search experience 1 year. InstahyreSource built + tested (live read-only smoke test OK),
   config entry present but `enabled: false` until step 2 (Instahyre as its own platform with
   a daily limit) and step 3 (apply: dry run, one approved application, then Auto).
+- 2026-10-05 Instahyre step 2 done: its own platform (limit instahyre: 5 inside total 40,
+  apply type instahyre_direct, Home card, filters, Settings field); search enabled in the
+  daily run. Applying is not built yet (apply_supported false) - step 3 next.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 

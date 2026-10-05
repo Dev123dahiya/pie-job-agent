@@ -1,9 +1,9 @@
 """Which platform a job belongs to, and how it is applied to.
 
-platform: naukri | linkedin | company_site (daily limits are counted per platform).
+platform: naukri | linkedin | company_site | instahyre (daily limits are counted per platform).
 apply type:
 - company_form: an employer's own application form PIE can fill (Greenhouse, Lever...)
-- naukri_direct / linkedin_easy_apply: applied on the platform itself (Phase C / D)
+- naukri_direct / linkedin_easy_apply / instahyre_direct: applied on the platform itself
 - external_link: a listing that only links elsewhere (aggregator APIs); PIE follows the link
 """
 
@@ -11,14 +11,20 @@ from typing import Literal
 
 from database.models import Job
 
-Platform = Literal["naukri", "linkedin", "company_site"]
-PLATFORMS: tuple[Platform, ...] = ("naukri", "linkedin", "company_site")
+Platform = Literal["naukri", "linkedin", "company_site", "instahyre"]
+PLATFORMS: tuple[Platform, ...] = ("naukri", "linkedin", "company_site", "instahyre")
+# Job sources that are job platforms themselves (applied to on the platform, with the profile
+# saved there: no tailored resume, no employer form).
+PLATFORM_SOURCES: tuple[str, ...] = ("naukri", "linkedin", "instahyre")
 
-ApplyType = Literal["company_form", "naukri_direct", "linkedin_easy_apply", "external_link"]
+ApplyType = Literal[
+    "company_form", "naukri_direct", "linkedin_easy_apply", "instahyre_direct", "external_link"
+]
 APPLY_TYPES: tuple[ApplyType, ...] = (
     "company_form",
     "naukri_direct",
     "linkedin_easy_apply",
+    "instahyre_direct",
     "external_link",
 )
 
@@ -32,6 +38,8 @@ def platform_of(job: Job) -> Platform:
         return "naukri"
     if source == "linkedin":
         return "linkedin"
+    if source == "instahyre":
+        return "instahyre"
     return "company_site"  # Greenhouse, Lever, Ashby... and every other employer site
 
 
@@ -41,6 +49,8 @@ def apply_type_of(job: Job) -> ApplyType:
         return "naukri_direct"
     if source == "linkedin":
         return "linkedin_easy_apply"
+    if source == "instahyre":
+        return "instahyre_direct"
     return "company_form" if source in FORM_SOURCES else "external_link"
 
 

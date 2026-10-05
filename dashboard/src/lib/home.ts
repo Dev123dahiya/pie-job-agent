@@ -5,6 +5,7 @@ export const PLATFORM_LABEL: Record<DailyLimit["platform"], string> = {
   naukri: "Naukri",
   linkedin: "LinkedIn",
   company_site: "Company sites",
+  instahyre: "Instahyre",
 };
 
 export const STATUS_LABEL: Record<UserStatusKey, string> = {
@@ -20,6 +21,7 @@ export const APPLY_TYPE_LABEL = {
   company_form: "Employer form",
   naukri_direct: "Naukri direct apply",
   linkedin_easy_apply: "LinkedIn Easy Apply",
+  instahyre_direct: "Instahyre apply",
   external_link: "External link",
 } as const;
 

@@ -64,7 +64,7 @@ from backend.services.manual_apply import (
     send_to_manual,
     skip_manual,
 )
-from backend.services.platforms import FORM_SOURCES, ApplyType, Platform
+from backend.services.platforms import FORM_SOURCES, PLATFORM_SOURCES, ApplyType, Platform
 from backend.services.readiness import evaluate_readiness
 from backend.services.resumes import locate_master_resume
 from backend.services.runs import RunConflictError, ensure_no_active_run
@@ -170,7 +170,7 @@ def _list_jobs(
         where.append(Job.pipeline_state.in_(status))
     if user_status:
         where.append(Job.pipeline_state.in_([s for u in user_status for s in states_for(u)]))
-    on_platform = func.lower(Job.source).in_(["naukri", "linkedin"])
+    on_platform = func.lower(Job.source).in_(list(PLATFORM_SOURCES))
     if platform == "company_site":
         where.append(~on_platform)
     elif platform:
@@ -181,6 +181,8 @@ def _list_jobs(
         where.append(func.lower(Job.source) == "naukri")
     elif apply_type == "linkedin_easy_apply":
         where.append(func.lower(Job.source) == "linkedin")
+    elif apply_type == "instahyre_direct":
+        where.append(func.lower(Job.source) == "instahyre")
     elif apply_type == "external_link":
         where += [~on_platform, func.lower(Job.source).notin_(sorted(FORM_SOURCES))]
     if company:

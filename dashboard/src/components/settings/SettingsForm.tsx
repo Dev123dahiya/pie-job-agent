@@ -114,7 +114,7 @@ export function SettingsForm({ current }: { current: CurrentSettings }) {
 
       <Card title="Limits and matching" description="Daily limits count live submissions; LinkedIn must stay below Naukri">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          {(["total", "naukri", "linkedin", "company_site"] as const).map(limitField)}
+          {(["total", "naukri", "linkedin", "instahyre", "company_site"] as const).map(limitField)}
           <label className="flex flex-col gap-1">
             <span className="text-xs text-ink-3">Min. match score</span>
             <input

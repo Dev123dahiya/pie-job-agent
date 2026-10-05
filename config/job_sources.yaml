@@ -152,10 +152,10 @@ sources:
   # Instahyre: the opportunities page's own search, run from your logged-in page; each kept
   # job's public page gives its post date and experience. Jobs stay listed for months and
   # there is no "newest first", so freshness is 14 days here (backend/services/freshness.py).
-  # Off until Instahyre is a full platform (own daily limit, apply).
+  # Applying on Instahyre comes next; until then its shortlisted jobs wait in the queue.
   - name: instahyre
     type: instahyre
-    enabled: false
+    enabled: true
     max_searches: 6
     max_details: 25
     request_delay_seconds: 6.0

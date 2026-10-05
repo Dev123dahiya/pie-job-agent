@@ -1,6 +1,6 @@
 export type RunStep = "discover" | "analyze" | "tailor" | "apply";
 export type RunMode = "dry-run" | "review" | "auto";
-export type Platform = "naukri" | "linkedin" | "company_site";
+export type Platform = "naukri" | "linkedin" | "company_site" | "instahyre";
 
 export type RunOptions = {
   steps: RunStep[];

@@ -8,7 +8,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 const current: CurrentSettings = {
   keywords: ["Python Developer"], locations: ["Gurugram"], excluded_companies: [], excluded_keywords: [],
-  freshness_hours: 48, limits: { total: 20, naukri: 15, linkedin: 5, company_site: 10 }, min_match_score: 70,
+  freshness_hours: 48, limits: { total: 20, naukri: 15, linkedin: 5, company_site: 10, instahyre: 5 }, min_match_score: 70,
   answers: { notice_period: "Immediate" },
   answer_questions: { notice_period: "What is your notice period?", current_ctc: "What is your current CTC?" },
   read_only: { models: { note: "E1", current: "claude-opus-5" }, experience_range: "Phase C", modes: "Runs page" },

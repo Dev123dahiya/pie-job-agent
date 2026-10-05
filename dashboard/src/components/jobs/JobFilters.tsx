@@ -94,6 +94,7 @@ export function JobFilters({ params, options }: { params: Params; options: JobFi
             <option value="">Any</option>
             <option value="naukri">Naukri</option>
             <option value="linkedin">LinkedIn</option>
+            <option value="instahyre">Instahyre</option>
             <option value="company_site">Company sites</option>
           </select>
         </Field>

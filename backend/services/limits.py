@@ -36,6 +36,7 @@ class DailyLimits(BaseModel):
     naukri: int = Field(default=15, ge=0, le=200)
     linkedin: int = Field(default=5, ge=0, le=200)
     company_site: int = Field(default=10, ge=0, le=200)
+    instahyre: int = Field(default=5, ge=0, le=200)
 
     @model_validator(mode="after")
     def _linkedin_below_naukri(self) -> "DailyLimits":

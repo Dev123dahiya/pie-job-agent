@@ -53,6 +53,7 @@ class Limits(BaseModel):
     naukri: int = Field(ge=0, le=200)
     linkedin: int = Field(ge=0, le=200)
     company_site: int = Field(ge=0, le=200)
+    instahyre: int = Field(default=5, ge=0, le=200)
 
 
 class SettingsChange(BaseModel):

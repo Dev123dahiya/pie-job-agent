@@ -34,6 +34,7 @@ _LINE = re.compile(
 _PLATFORM_WORDS: dict[Platform, re.Pattern[str]] = {
     "naukri": re.compile(r"(?i)\bnaukri\b"),
     "linkedin": re.compile(r"(?i)\blinked ?in\b"),
+    "instahyre": re.compile(r"(?i)\binstahyre\b"),
     "company_site": re.compile(
         r"(?i)platform=company_site|\b(" + "|".join(sorted(FORM_SOURCES - {"mock"})) + r")\b"
     ),

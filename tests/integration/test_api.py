@@ -95,7 +95,9 @@ def test_home_counts_six_statuses_and_never_claims_live(db: Session) -> None:
     assert home.quick_links.manual == 0 and home.quick_links.waiting_for_review == 0
     # DEVELOPMENT_MODE wins over the live flag: no live banner.
     assert home.live_possible is False and "DEVELOPMENT_MODE" in home.live_note
-    assert [p.platform for p in home.platforms] == ["naukri", "linkedin", "company_site"]
+    assert [p.platform for p in home.platforms] == [
+        "naukri", "linkedin", "instahyre", "company_site",
+    ]  # fmt: skip
     assert all(p.mode == "dry-run" for p in home.platforms)
     live = build_home(db, Settings(development_mode=False, external_live_enabled=True), now=now)
     assert live.live_possible is True

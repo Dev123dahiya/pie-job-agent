@@ -77,8 +77,13 @@ export type JobSummary = {
   source: string;
   /** One of the six statuses; `status` keeps PIE's detailed state. */
   user_status: UserStatusKey;
-  platform: "naukri" | "linkedin" | "company_site";
-  apply_type: "company_form" | "naukri_direct" | "linkedin_easy_apply" | "external_link";
+  platform: "naukri" | "linkedin" | "company_site" | "instahyre";
+  apply_type:
+    | "company_form"
+    | "naukri_direct"
+    | "linkedin_easy_apply"
+    | "instahyre_direct"
+    | "external_link";
   company: string | null;
   title: string;
   location: string | null;
@@ -394,7 +399,7 @@ export type ApplicationSummary = {
   applied_at: string | null;
   updated_at: string;
   user_status: UserStatusKey;
-  platform: "naukri" | "linkedin" | "company_site";
+  platform: "naukri" | "linkedin" | "company_site" | "instahyre";
   resume_locked: boolean;
   latest_session: { id: string; mode: "DRY_RUN" | "LIVE"; state: string; current_step: string | null } | null;
 };
@@ -496,7 +501,7 @@ export type UserStatusKey = "found" | "skipped" | "applied" | "needs_input" | "m
 export type StatusCounts = Record<UserStatusKey, number>;
 
 export interface PlatformMode {
-  platform: "naukri" | "linkedin" | "company_site";
+  platform: "naukri" | "linkedin" | "company_site" | "instahyre";
   mode: "dry-run" | "review" | "auto";
   built: boolean;
   note: string | null;
@@ -519,7 +524,7 @@ export interface HomeStatus {
 }
 
 export interface DailyLimit {
-  platform: "total" | "naukri" | "linkedin" | "company_site";
+  platform: "total" | "naukri" | "linkedin" | "company_site" | "instahyre";
   used: number;
   limit: number;
   remaining: number;

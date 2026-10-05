@@ -2370,13 +2370,13 @@ def test_live_submissions_use_up_the_limit_and_dry_runs_never_do(
     out = svc.run_execution(ectx(db, dry_settings, exec_profile, browser), ready_job)
     assert out["dry_run_complete"] is True and out["state"] == "CLOSED", out
     settings = with_limits(live_settings, tmp_path, company_site=1)
-    assert used() == {"total": 0, "naukri": 0, "linkedin": 0, "company_site": 0}
+    assert used() == {"total": 0, "naukri": 0, "linkedin": 0, "company_site": 0, "instahyre": 0}
 
     sid = prepare_live(db, settings, exec_profile, browser, ready_job)
     confirm(db, settings, sid)
     agent = tctx(db, settings, exec_profile, browser, LIVE)
     assert call(agent, "submit_application", session_id=sid).ok
-    assert used() == {"total": 1, "naukri": 0, "linkedin": 0, "company_site": 1}
+    assert used() == {"total": 1, "naukri": 0, "linkedin": 0, "company_site": 1, "instahyre": 0}
 
     attempt = db.scalar(select(SubmissionAttempt))
     assert attempt is not None
@@ -2395,12 +2395,15 @@ def test_live_submissions_use_up_the_limit_and_dry_runs_never_do(
 
 def test_api_shows_todays_limits(client: Any, api: Any) -> None:
     rows = client.get("/api/dashboard/limits").json()
-    assert [r["platform"] for r in rows] == ["total", "naukri", "linkedin", "company_site"]
+    assert [r["platform"] for r in rows] == [
+        "total", "naukri", "linkedin", "company_site", "instahyre",
+    ]  # fmt: skip
     assert {r["platform"]: r["limit"] for r in rows} == {
         "total": 40,
         "naukri": 15,
         "linkedin": 5,
         "company_site": 10,
+        "instahyre": 5,
     }
     assert all(r["used"] == 0 and r["remaining"] == r["limit"] for r in rows)
 
@@ -2680,7 +2683,9 @@ def test_runs_refuse_what_is_not_allowed(client: Any, api: Any, ready_job: uuid.
     assert res.status_code == 422 and "DEVELOPMENT_MODE" in res.json()["detail"]
     opts = client.get("/api/runs/options").json()
     assert opts["default_mode"] == "dry-run" and opts["live_possible"] is False
-    assert all(p["apply_supported"] for p in opts["platforms"])  # all three platforms built
+    supported = {p["platform"]: p["apply_supported"] for p in opts["platforms"]}
+    # applying is built everywhere except Instahyre (its search comes first)
+    assert supported == {"naukri": True, "linkedin": True, "company_site": True, "instahyre": False}
 
 
 def test_runs_review_mode_needs_the_exact_confirmation_and_never_submits(

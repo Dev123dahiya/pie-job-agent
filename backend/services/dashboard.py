@@ -233,6 +233,14 @@ def build_home(
             login_command="python -m backend.scripts.login linkedin --test-search",
         ),
         PlatformMode(
+            platform="instahyre",
+            mode="dry-run",
+            built=False,
+            note="Search works; applying comes next (dry run, then one application you approve).",
+            login=(logins.get("instahyre") or {}).get("state", "never"),
+            login_command="python -m backend.scripts.login instahyre",
+        ),
+        PlatformMode(
             platform="company_site",
             mode="dry-run",
             built=True,

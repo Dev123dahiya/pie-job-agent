@@ -16,6 +16,7 @@ export function ApplicationFilters({ params }: { params: Params }) {
           <option value="">Any</option>
           <option value="naukri">Naukri</option>
           <option value="linkedin">LinkedIn</option>
+          <option value="instahyre">Instahyre</option>
           <option value="company_site">Company sites</option>
         </select>
       </label>
