@@ -2683,9 +2683,7 @@ def test_runs_refuse_what_is_not_allowed(client: Any, api: Any, ready_job: uuid.
     assert res.status_code == 422 and "DEVELOPMENT_MODE" in res.json()["detail"]
     opts = client.get("/api/runs/options").json()
     assert opts["default_mode"] == "dry-run" and opts["live_possible"] is False
-    supported = {p["platform"]: p["apply_supported"] for p in opts["platforms"]}
-    # applying is built everywhere except Instahyre (its search comes first)
-    assert supported == {"naukri": True, "linkedin": True, "company_site": True, "instahyre": False}
+    assert all(p["apply_supported"] for p in opts["platforms"])  # every platform is built
 
 
 def test_runs_review_mode_needs_the_exact_confirmation_and_never_submits(
@@ -2843,8 +2841,11 @@ class FakeNaukri:
         return {"status": 200, "url": url, "text": "job page",
                 "items": [{"id": ids, "text": self.button}]}  # fmt: skip
 
-    def click_platform_apply(self, url: str, button: str, expect: str, follow_up: str) -> Any:
+    def click_platform_apply(
+        self, url: str, button: str, expect: str, follow_up: str, applied_text: str = "Applied"
+    ) -> Any:
         self.clicks.append(url)
+        self.expected = (button, expect, applied_text)
         out = {"url": url, "button_after": self.after, "follow_up": self.follow_up, "text": ""}
         if self.applied is not None:
             out["applied"] = self.applied
@@ -3373,3 +3374,75 @@ def test_daily_auto_apply_only_where_auto_is_unlocked(
     # Next day's run (same day here): nothing is applied twice.
     again = _daily_auto(session_factory, settings, exec_profile, fake)
     assert again["naukri"]["skipped"] == "nothing ready" and len(fake.clicks) == 1
+
+
+# --- Instahyre: one-click "Apply now" (shares naukri_apply; fake browser, no site contacted) --
+
+
+class FakeInstahyreJobPage(FakeNaukri):
+    """Instahyre's job page: one ".apply-button button" without an id."""
+
+    def read_cards(self, url: str, spec: dict[str, Any], *, render_all: bool = False) -> Any:
+        assert spec["card"] == ".apply-button button"
+        return {"status": 200, "url": url, "text": "job page",
+                "items": [{"id": None, "text": self.button}]}  # fmt: skip
+
+
+@pytest.fixture
+def instahyre_job(client: Any, api: Any, db: Session) -> uuid.UUID:
+    job = Job(
+        source="instahyre", source_job_id="433301", title="AI Engineer",
+        url="https://www.instahyre.com/job-433301-ai-engineer-at-acme-gurgaon/",
+        location="Gurgaon", description="Python, LLM", posted_at=utcnow(),
+        pipeline_state=S.SHORTLISTED,
+    )  # fmt: skip
+    db.add(job)
+    db.commit()
+    res = client.post(f"/api/jobs/{job.id}/application-draft", json={})
+    assert res.status_code == 200, res.text
+    assert job_state(db, job.id) is S.READY_TO_APPLY  # no tailored resume on Instahyre
+    return job.id
+
+
+def test_instahyre_dry_run_review_and_one_click(
+    client: Any, api: Any, db: Session, live_settings: Settings, instahyre_job: Any
+) -> None:
+    from backend.services.auto_mode import auto_status
+
+    fake = FakeInstahyreJobPage(button="Apply now", after="Application sent!", applied=True)
+    _fake_naukri(client, fake)
+    dry = _start(client, steps=["apply"], platforms=["instahyre"])
+    run = client.get(f"/api/runs/{dry.json()['run_id']}").json()
+    assert run["report"]["counts"] == {"instahyre_would_wait_for_review": 1} and fake.clicks == []
+    assert auto_status(db, "instahyre")["missing"] == [
+        "one application you approved in review mode"
+    ]
+
+    api["settings"] = live_settings
+    opts = client.get("/api/runs/options").json()
+    ih = next(p for p in opts["platforms"] if p["platform"] == "instahyre")
+    phrase = ih["review_confirmation"]["phrase"]
+    assert phrase == "LIVE on instahyre: up to 5 today"
+    _start(client, steps=["apply"], platforms=["instahyre"], mode="review", confirmation=phrase)
+    [item] = client.get("/api/review").json()["items"]
+    assert fake.clicks == []
+    ok = client.post(f"/api/review/{item['session_id']}/approve",
+                     json={"statement": item["confirmation_statement"]})  # fmt: skip
+    assert ok.status_code == 200 and ok.json()["submitted"] is True, ok.json()
+    assert fake.clicks == [str(db.get(Job, instahyre_job).url)]
+    assert fake.expected == (".apply-button button", "Apply now", "Application sent!")
+    assert job_state(db, instahyre_job) is S.SUBMITTED
+    assert auto_status(db, "instahyre")["unlocked"] is True
+
+
+def test_instahyre_job_already_applied_is_withdrawn_not_clicked(
+    client: Any, api: Any, db: Session, live_settings: Settings, instahyre_job: Any
+) -> None:
+    fake = FakeInstahyreJobPage(button="Application sent!")
+    _fake_naukri(client, fake)
+    api["settings"] = live_settings
+    opts = client.get("/api/runs/options").json()
+    ih = next(p for p in opts["platforms"] if p["platform"] == "instahyre")
+    _start(client, steps=["apply"], platforms=["instahyre"], mode="review",
+           confirmation=ih["review_confirmation"]["phrase"])  # fmt: skip
+    assert job_state(db, instahyre_job) is S.WITHDRAWN and fake.clicks == []

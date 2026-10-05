@@ -53,7 +53,9 @@ logger = logging.getLogger(__name__)
 Step = Literal["discover", "analyze", "tailor", "apply"]
 STEPS: tuple[Step, ...] = ("discover", "analyze", "tailor", "apply")
 Mode = Literal["dry-run", "review", "auto"]
-BUILT_PLATFORMS: frozenset[Platform] = frozenset({"company_site", "naukri", "linkedin"})
+BUILT_PLATFORMS: frozenset[Platform] = frozenset(
+    {"company_site", "naukri", "linkedin", "instahyre"}
+)
 MAX_ANALYSIS = 50  # agreed cap for one run
 
 
@@ -350,22 +352,26 @@ class PipelineService:
                     break
             log.heartbeat(f"Applying ({req.mode}): {job.title}"[:200])
             db.commit()
-            if platform_of(job) == "naukri":
+            from backend.services.naukri_apply import ONE_CLICK
+
+            if platform_of(job) in ONE_CLICK:  # Naukri, Instahyre: one-click apply
                 if deps.platform_browser is None:
                     break
                 from backend.services import naukri_apply
 
+                p = platform_of(job)
+                sel = ONE_CLICK[p]
                 try:
                     outcome = naukri_apply.prepare(
-                        db, deps.platform_browser("naukri"), job, run.id, dry_run=not live
+                        db, deps.platform_browser(p), job, run.id, dry_run=not live, sel=sel
                     )
                 except Exception as exc:  # the platform browser failed: report, go on
-                    report.failures.append(_failure("apply", job, f"Naukri: {exc}"))
+                    report.failures.append(_failure("apply", job, f"{sel.NAME}: {exc}"))
                     continue
                 done += 1
-                report.add(f"naukri_{outcome}")
+                report.add(f"{p}_{outcome}")
                 if outcome in ("blocked", "login_needed", "quota"):
-                    report.failures.append(_failure("apply", job, f"Naukri: {outcome}"))
+                    report.failures.append(_failure("apply", job, f"{sel.NAME}: {outcome}"))
                     break
                 if auto and outcome == "waiting_for_review" and self._auto(db, deps, job, report):
                     break

@@ -136,11 +136,14 @@ def _approve(
     ctx = _ctx(db, settings, profile, browser)
     try:
         svc.confirm_live_submission(db, settings, s.id, expected)
-        if platform_of(job) == "naukri":
+        from backend.services.naukri_apply import ONE_CLICK
+
+        if platform_of(job) in ONE_CLICK:  # Naukri, Instahyre
             from backend.services import naukri_apply
 
+            p = platform_of(job)
             db.refresh(s)
-            out = naukri_apply.submit(db, settings, profile, platform_browser("naukri"), s)
+            out = naukri_apply.submit(db, settings, profile, platform_browser(p), s, ONE_CLICK[p])
             return {"session_id": str(sid), **out}
         if platform_of(job) == "linkedin":
             from backend.services import linkedin_apply

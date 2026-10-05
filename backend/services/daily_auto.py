@@ -6,7 +6,7 @@ in for the phrase typed on the Runs page. Every other safety rule is the normal 
 (live switches, visible browser, auto unlock per platform, daily limits counted before
 opening and before submitting, duplicate checks, stop on site warnings, pause on any
 question without a verified answer). Company sites need a tailored resume (Claude), so this
-step only drafts jobs that need no tailoring: Naukri and LinkedIn.
+step only drafts jobs that need no tailoring: Naukri, LinkedIn and Instahyre.
 """
 
 import logging
@@ -34,7 +34,11 @@ from database.models import Job
 
 logger = logging.getLogger(__name__)
 
-DAILY_AUTO_PLATFORMS: tuple[Platform, ...] = ("linkedin", "naukri")  # no tailored resume needed
+DAILY_AUTO_PLATFORMS: tuple[Platform, ...] = (
+    "linkedin",
+    "naukri",
+    "instahyre",
+)  # no tailored resume needed
 
 
 def _no_plan() -> Any:

@@ -8,6 +8,8 @@ docs/PROGRESS.md "Blockers").
 from integrations.platforms.base import slug
 
 NAME = "Naukri"
+PLATFORM = "naukri"
+DOMAIN = "naukri.com"
 LOGIN_URL = "https://www.naukri.com/nlogin/login"
 HOME_URL = "https://www.naukri.com/mnjuser/homepage"  # only a logged-in user sees this
 LOGGED_OUT_URL_PARTS = ("/nlogin", "/login")
@@ -81,8 +83,14 @@ APPLY_SPEC = {
     "id_attr": "id",
     "fields": {"text": {"css": None}},
 }
-# After clicking Apply (VERIFY on the first real application): the button reads "Applied",
-# or a chatbot drawer asks follow-up questions.
+# One-click apply (shared with Instahyre, backend/services/naukri_apply.py): the button text
+# before the click, the text it turns into, and the "apply elsewhere" button's id.
+APPLY_TEXT = "Apply"
+APPLIED_BUTTON_TEXT = "Applied"
+APPLIED_PREFIX = "applied"
+COMPANY_SITE_ID: str | None = COMPANY_SITE_BUTTON.lstrip("#")
+# After clicking Apply (checked on the first real application, 2026-10-04): the button
+# reads "Applied", or a chatbot drawer asks follow-up questions.
 APPLIED_TEXTS = ("applied", "you have successfully applied", "application sent")
 FOLLOW_UP_MARKER = "[class*='chatbot']"
 

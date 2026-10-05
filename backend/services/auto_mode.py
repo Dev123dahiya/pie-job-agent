@@ -21,7 +21,7 @@ from backend.services.platforms import Platform, platform_of
 from database.enums import BrowserExecutionMode, BrowserSessionState, SubmissionOutcome
 from database.models import Application, ApplicationEvent, BrowserSession, Job, SubmissionAttempt
 
-DRY_RUN_EVENTS = ("dry_run_completed", "naukri_dry_run_checked")
+DRY_RUN_EVENTS = ("dry_run_completed", "naukri_dry_run_checked", "instahyre_dry_run_checked")
 APPROVED = (SubmissionOutcome.CONFIRMED, SubmissionOutcome.USER_CONFIRMED)
 AUTO_PREFIX = "AUTO MODE (one confirmation for this run): "
 
@@ -76,10 +76,14 @@ def auto_submit(
     svc.confirm_live_submission(db, settings, session.id, AUTO_PREFIX + confirmation_statement(job))
     db.refresh(session)
     platform = platform_of(job)
-    if platform == "naukri":
+    from backend.services.naukri_apply import ONE_CLICK
+
+    if platform in ONE_CLICK:  # Naukri, Instahyre
         from backend.services import naukri_apply
 
-        return naukri_apply.submit(db, settings, profile, platform_browser("naukri"), session)
+        return naukri_apply.submit(
+            db, settings, profile, platform_browser(platform), session, ONE_CLICK[platform]
+        )
     ctx = svc.ExecContext(
         db=db, settings=settings, profile=profile,
         browser=platform_browser("linkedin") if platform == "linkedin" else browser,

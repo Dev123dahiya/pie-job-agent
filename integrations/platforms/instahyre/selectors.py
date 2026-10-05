@@ -11,6 +11,8 @@ logged-in site 2026-10-05:
 from urllib.parse import urlencode
 
 NAME = "Instahyre"
+PLATFORM = "instahyre"
+DOMAIN = "instahyre.com"
 LOGIN_URL = "https://www.instahyre.com/login/"
 # The candidate's job feed, which only a logged-in user sees.
 HOME_URL = "https://www.instahyre.com/candidate/opportunities/"
@@ -62,3 +64,22 @@ def search_url(keyword: str, location: str) -> str:
     """For the login script's --test-search: the opportunities page itself (Instahyre has no
     shareable search address; PIE searches from this page)."""
     return HOME_URL
+
+
+# --- job page: one-click apply (read from the page's own code, 2026-10-05) ----------------
+# "Apply now" sends the Instahyre profile at once (no form, no questions): the page then shows
+# a disabled "Application sent!" button with the date, as on every job already applied to.
+APPLY_BUTTON = ".apply-button button"
+APPLY_SPEC = {"card": APPLY_BUTTON, "id_attr": None, "fields": {"text": {"css": None}}}
+APPLY_TEXT = "Apply now"
+APPLIED_BUTTON_TEXT = "Application sent!"
+APPLIED_PREFIX = "application sent"
+COMPANY_SITE_ID: str | None = None  # Instahyre has no "apply on the company's site" button
+APPLIED_TEXTS = ("application sent!", "application sent to")  # button, then the toast
+FOLLOW_UP_MARKER = ".modal.in"  # never seen after "Apply now": any open dialog
+# A daily quota or warning message: PIE stops on this platform at once (REQUIREMENTS 10).
+QUOTA_PATTERN = (
+    r"(daily|today'?s?)\s+(apply|application)\s+limit"
+    r"|(reached|hit|exceeded)\b[^.\n]{0,40}\b(apply|application|daily)\b[^.\n]{0,20}\blimit"
+    r"|unusual activity|temporarily restricted|account (has been )?(blocked|suspended)"
+)

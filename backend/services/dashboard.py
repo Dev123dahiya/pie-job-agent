@@ -219,24 +219,27 @@ def build_home(
         PlatformMode(
             platform="naukri",
             mode="dry-run",
-            built=False,
-            note="Login check works; search and apply come after the live login test.",
+            built=True,
+            note="Search and one-click Apply. Auto mode unlocks after a dry run and one "
+            "application you approve.",
             login=(logins.get("naukri") or {}).get("state", "never"),
             login_command="python -m backend.scripts.login naukri --test-search",
         ),
         PlatformMode(
             platform="linkedin",
             mode="dry-run",
-            built=False,
-            note="Login check works; search and Easy Apply come after the live login test.",
+            built=True,
+            note="Search and Easy Apply. Auto mode unlocks after a dry run and one "
+            "application you approve.",
             login=(logins.get("linkedin") or {}).get("state", "never"),
             login_command="python -m backend.scripts.login linkedin --test-search",
         ),
         PlatformMode(
             platform="instahyre",
             mode="dry-run",
-            built=False,
-            note="Search works; applying comes next (dry run, then one application you approve).",
+            built=True,
+            note="Search and one-click \"Apply now\". Auto mode unlocks after a dry run and one "
+            "application you approve.",
             login=(logins.get("instahyre") or {}).get("state", "never"),
             login_command="python -m backend.scripts.login instahyre",
         ),

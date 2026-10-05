@@ -180,7 +180,11 @@ after Phase C".
   a daily limit) and step 3 (apply: dry run, one approved application, then Auto).
 - 2026-10-05 Instahyre step 2 done: its own platform (limit instahyre: 5 inside total 40,
   apply type instahyre_direct, Home card, filters, Settings field); search enabled in the
-  daily run. Applying is not built yet (apply_supported false) - step 3 next.
+  daily run.
+- 2026-10-05 Instahyre step 3 (apply) built: "Apply now" is one click (page code:
+  update_interest -> "Application sent!"), so naukri_apply is now the shared one-click module
+  (ONE_CLICK: naukri, instahyre). Review queue, auto mode, daily auto-apply include Instahyre.
+  Live unlock still needed: one dry run + one application the user approves.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 
