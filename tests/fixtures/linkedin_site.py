@@ -38,7 +38,7 @@ const STEPS = [
    (CASE === "unknown"
      ? `<label for="k8s">How many years of Kubernetes experience do you have?</label>
         <input id="k8s" required>` : "") +
-   (CASE === "degree"  // the live markup (2026-10-05): hidden inputs under drawn role=radio
+   (CASE === "degree" || CASE === "lateq"  // live markup (2026-10-05): hidden radios
      ? `<div><p>Have you completed the following level of education: Bachelor's Degree?*</p>
         <fieldset role="radiogroup">${["Yes", "No"].map((o, i) => `
           <div role="radio" tabindex="0" aria-checked="false" style="padding:4px"
@@ -69,14 +69,23 @@ function render() {
     <form onsubmit="return false">${STEPS[step]}</form>
     ${step > 0 ? '<button id="back">Back</button>' : ''} ${next}</div>`;
   const n = root.getElementById("next");
-  if (n) n.onclick = () => { if (CASE !== "stuck") { step++; render(); } };
+  if (n) n.onclick = () => {
+    // Like LinkedIn: a required question left empty keeps the form on this step.
+    const deg = root.querySelectorAll('input[name="radio-group-deg"]');
+    if (deg.length && ![...deg].some((i) => i.checked)) return;
+    if (CASE !== "stuck") { step++; render(); }
+  };
+  if (CASE === "lateq" && step === 1) {  // the question is drawn after the step itself
+    const q = root.querySelector("fieldset[role=radiogroup]")?.parentElement;
+    if (q) { q.style.display = "none"; setTimeout(() => { q.style.display = ""; }, 1500); }
+  }
   const b = root.getElementById("back");
   if (b) b.onclick = () => { step--; render(); };
   const s = root.getElementById("submit");
   if (s) s.onclick = async () => {
     await fetch("/submit/" + CASE, { method: "POST", body: "{}" });
     root.innerHTML = `<div class="panel"><h2>Apply to Acme</h2>
-      <p>Your application was sent to Acme</p></div>`;
+      <p>${CASE === "submitted" ? "Application submitted" : "Your application was sent to Acme"}</p></div>`;
   };
   root.getElementById("dismiss").onclick = () => {
     root.innerHTML = `<div class="panel"><h2>Discard application?</h2>

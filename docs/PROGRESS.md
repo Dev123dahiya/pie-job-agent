@@ -233,6 +233,11 @@ after Phase C".
   text from it and the question from the text before the group; filling clicks the stand-in.
   A LinkedIn job paused for answers goes back to READY_TO_APPLY once they are all saved
   (RESTART_DOMAINS), instead of staying paused.
+- 2026-10-05 Retry: Jobgether's Submit click was SENT (LinkedIn now says "Application
+  submitted"; PIE only knew "application sent") - checked on the job page, recorded as sent;
+  wording added. TantranZm/Emagesoft stuck again: the degree question is drawn after the step
+  loads; a step that does not move is now read once more before failing, so the question is
+  asked. Today: LinkedIn 2/5 (NxTreasury, Jobgether), Instahyre 1/5 (Meesho).
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 

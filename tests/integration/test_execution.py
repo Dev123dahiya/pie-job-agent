@@ -3575,3 +3575,27 @@ def test_linkedin_hidden_radio_questions_are_asked_then_answered(
     assert session is not None
     assert any(f.get("key") == question["question_key"] for f in session.filled_fields or [])
     assert li_site.submissions == []
+
+
+def test_linkedin_question_drawn_late_is_still_asked(
+    client: Any, api: Any, db: Session, li_job: Any, li_site: Any
+) -> None:
+    job_id = li_job("lateq")
+    run = _li_run(client)
+    assert run["report"]["counts"] == {"linkedin_needs_input": 1}, run["report"]["failures"]
+    assert job_state(db, job_id) is S.BLOCKED_NEEDS_USER and li_site.submissions == []
+
+
+def test_linkedin_new_confirmation_wording_counts_as_sent(
+    client: Any, api: Any, db: Session, li_job: Any, li_site: Any, live_settings: Settings
+) -> None:
+    job_id = li_job("submitted")  # LinkedIn now says "Application submitted" (2026-10-05)
+    api["settings"] = live_settings
+    phrase = next(p for p in client.get("/api/runs/options").json()["platforms"]
+                  if p["platform"] == "linkedin")["review_confirmation"]["phrase"]  # fmt: skip
+    _li_run(client, mode="review", confirmation=phrase)
+    [item] = client.get("/api/review").json()["items"]
+    ok = client.post(f"/api/review/{item['session_id']}/approve",
+                     json={"statement": item["confirmation_statement"]})  # fmt: skip
+    assert ok.json()["submitted"] is True, ok.json()
+    assert li_site.submissions == ["submitted"] and job_state(db, job_id) is S.SUBMITTED

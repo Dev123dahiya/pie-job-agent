@@ -80,6 +80,7 @@ def run(ctx: svc.ExecContext, job: Job) -> dict[str, Any]:
         version = svc._validated_resume(ctx, app)
         pdf = svc._resume_pdf(ctx, version)
         filled: list[dict[str, Any]] = []
+        stuck = 0  # consecutive clicks that did not move the form
         for step in range(1, linkedin.MAX_STEPS + 1):
             warning = quota_warning(linkedin, str(panel.get("ui_text") or ""))
             if warning:
@@ -157,9 +158,15 @@ def run(ctx: svc.ExecContext, job: Job) -> dict[str, Any]:
             before = (panel.get("heading"), panel.get("ui_text"))
             panel = ctx.browser.panel_click(sid, nxt)
             if (panel.get("heading"), panel.get("ui_text")) == before:
-                raise svc.ExecutionError(
-                    "PRECONDITION_FAILED", "The form did not move to the next step (stuck)"
-                )
+                # LinkedIn refused to move on: usually a required question drawn after PIE read
+                # the step. Read the step once more (this panel is a fresh read) before failing.
+                stuck += 1
+                if stuck > 1:
+                    raise svc.ExecutionError(
+                        "PRECONDITION_FAILED", "The form did not move to the next step (stuck)"
+                    )
+                continue
+            stuck = 0
         raise svc.ExecutionError(
             "PRECONDITION_FAILED", f"More than {linkedin.MAX_STEPS} steps: stopped"
         )

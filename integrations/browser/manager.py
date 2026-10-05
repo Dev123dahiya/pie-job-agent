@@ -76,6 +76,11 @@ FETCH_JSON = """async (path) => {
 }"""
 
 
+# LinkedIn's confirmation after Submit: "Your application was sent to X" (2026-10-04) or
+# "Application submitted" (2026-10-05).
+LI_SENT = re.compile(r"application (was )?sent|application submitted", re.I)
+
+
 class BrowserError(RuntimeError):
     """A browser operation failed (navigation, timeout, crash, missing element...)."""
 
@@ -768,7 +773,7 @@ class BrowserManager:
             names = (*self._PANEL_STEP_BUTTONS, "Submit application")
             if any(self._step_button(page, n).count() for n in names):
                 break
-            if page.get_by_text(re.compile(r"application (was )?sent", re.I)).count():
+            if page.get_by_text(LI_SENT).count():
                 break
             page.wait_for_timeout(500)
             waited += 500
@@ -788,7 +793,7 @@ class BrowserManager:
             "heading": heading.inner_text().strip() if heading.count() else None,
             "ui_text": text,
             # Locators see inside the shadow root; body.innerText does not.
-            "sent": page.get_by_text(re.compile(r"application (was )?sent", re.I)).count() > 0,
+            "sent": page.get_by_text(LI_SENT).count() > 0,
             "url": redact_url(page.url) or "",
         }
 
