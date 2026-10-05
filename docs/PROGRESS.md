@@ -220,6 +220,12 @@ after Phase C".
   min_salary_lpa: 10 - only a SHOWN salary below 10 LPA rejects; jobs without a shown salary
   are kept. Naukri "x-y Lacs P.A." / "LPA" salaries are now stored as annual INR (never
   guessed). Apply order: shown salaries first, highest first.
+- 2026-10-05 Bangalore run: 1316 found / 260 new / 31 analyzed / 10 shortlisted (5 LinkedIn,
+  1 Naukri -> company site -> Manual apply, 4 foundit Infosys -> Manual apply). LinkedIn had
+  logged PIE out between search and apply: all 5 failed with "No Easy Apply button" (page =
+  "Join LinkedIn"). Fix: li_open detects the signed-out page (BrowserError LOGIN); the job
+  stays READY_TO_APPLY, LinkedIn's login status becomes expired, the run stops on LinkedIn.
+  The 5 jobs were requeued; waiting for the user to log in to LinkedIn again.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 

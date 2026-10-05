@@ -784,7 +784,15 @@ class BrowserManager:
             "url": redact_url(page.url) or "",
         }
 
-    def li_open(self, sid: str, url: str, *, dry_run: bool, button_name: str) -> dict[str, Any]:
+    def li_open(
+        self,
+        sid: str,
+        url: str,
+        *,
+        dry_run: bool,
+        button_name: str,
+        logged_out: tuple[tuple[str, ...], tuple[str, ...]] = ((), ()),
+    ) -> dict[str, Any]:
         """Open a LinkedIn job page and its Easy Apply panel (opening sends nothing). The
         page is kept for the session. No request guard here: LinkedIn's own UI needs its
         requests; a dry run is safe because nothing ever clicks Submit for it."""
@@ -805,6 +813,10 @@ class BrowserManager:
             self._settle(page)
             button = page.get_by_role("button", name=button_name, exact=True).first
             if button.count() == 0:
+                url_parts, texts = logged_out
+                body = page.inner_text("body").lower() if page.locator("body").count() else ""
+                if any(p in page.url for p in url_parts) or any(t in body for t in texts):
+                    raise BrowserError("LOGIN", "LinkedIn shows the sign-in page: not logged in")
                 raise BrowserError("NOT_FOUND", "No Easy Apply button on the job page")
             button.click()
             heading = page.locator("h2, h3").filter(has_text=re.compile(r"^\s*Apply to "))

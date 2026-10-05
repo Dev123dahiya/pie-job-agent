@@ -70,8 +70,9 @@ def run(ctx: svc.ExecContext, job: Job) -> dict[str, Any]:
     ctx.tool = "linkedin_easy_apply"
     try:
         panel = ctx.browser.li_open(
-            sid, job.url, dry_run=not live, button_name=linkedin.EASY_APPLY_BUTTON_NAME
-        )
+            sid, job.url, dry_run=not live, button_name=linkedin.EASY_APPLY_BUTTON_NAME,
+            logged_out=(linkedin.LOGGED_OUT_URL_PARTS, linkedin.LOGGED_OUT_TEXTS),
+        )  # fmt: skip
         bank = svc._bank(ctx, app)
         # A validated tailored resume for this job replaces LinkedIn's saved one - uploaded
         # only in review (live) mode: uploading sends the file to LinkedIn. Without one, the
@@ -173,6 +174,19 @@ def run(ctx: svc.ExecContext, job: Job) -> dict[str, Any]:
             svc._event(ctx, job, app, "platform_quota", message)
             ctx.db.commit()
             return {"outcome": "quota", "session_id": sid, "error": message}
+        if isinstance(exc, BrowserError) and exc.kind == "LOGIN":
+            # Not this job's fault: keep it queued, record the expired login, stop on LinkedIn.
+            from backend.core.config import REPO_ROOT
+            from integrations.platforms.base import LoginCheck, save_status
+
+            save_status(REPO_ROOT / "data", "linkedin", LoginCheck(
+                "expired", "Not logged in to LinkedIn: log in again.", job.url))  # fmt: skip
+            ctx.browser.close(sid)
+            session.state, session.closed_at = B.CLOSED, utcnow()
+            session.current_step = message
+            svc._move(ctx, job, app, S.READY_TO_APPLY, message)
+            ctx.db.commit()
+            return {"outcome": "login_needed", "session_id": sid, "error": message}
         if not live:
             ctx.browser.panel_discard(sid, linkedin.DISMISS_LABEL, linkedin.DISCARD_TEXT)
         svc._fail(ctx, session, job, app, message)

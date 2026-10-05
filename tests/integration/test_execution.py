@@ -3533,3 +3533,20 @@ def test_a_button_that_stays_covered_is_never_clicked(browser: BrowserManager) -
             "Application sent!",
         )  # fmt: skip
     assert err.value.kind == "NOT_CLICKED"
+
+
+def test_a_lost_linkedin_login_keeps_the_jobs_queued_and_stops(
+    client: Any, api: Any, db: Session, li_job: Any, li_site: Any, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    from backend.core import config as core_config
+    from integrations.platforms.base import load_status
+
+    monkeypatch.setattr(core_config, "REPO_ROOT", tmp_path)  # the login status file goes here
+    first, second = li_job("loggedout"), li_job("normal")
+    run = _li_run(client)
+    assert run["report"]["counts"] == {"linkedin_login_needed": 1}, run["report"]
+    assert job_state(db, first) is S.READY_TO_APPLY  # not failed: retried after the login
+    assert job_state(db, second) is S.READY_TO_APPLY  # LinkedIn stopped: not even opened
+    assert load_status(tmp_path / "data")["linkedin"]["state"] == "expired"
+    assert li_site.submissions == []

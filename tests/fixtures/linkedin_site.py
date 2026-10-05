@@ -109,6 +109,9 @@ class LinkedInSite:
             def do_GET(self) -> None:
                 case = self.path.strip("/").split("/")[-1]
                 body = PAGE.replace("%CASE%", case).encode()
+                if case == "loggedout":  # what LinkedIn shows a signed-out visitor
+                    body = (b"<html><body><h1>Join LinkedIn</h1><input placeholder='Email'>"
+                            b"<button>Agree &amp; Join</button></body></html>")  # fmt: skip
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()

@@ -400,8 +400,8 @@ class PipelineService:
                 report.add(f"linkedin_{li['outcome']}")
                 if li.get("error"):
                     report.failures.append(_failure("apply", job, f"LinkedIn: {li['error']}"))
-                if li["outcome"] == "quota":
-                    break  # a quota or warning message: stop on LinkedIn at once
+                if li["outcome"] in ("quota", "login_needed"):
+                    break  # a quota/warning message or a lost login: stop on LinkedIn at once
                 if (
                     auto
                     and li["outcome"] == "waiting_for_review"

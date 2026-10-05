@@ -16,6 +16,9 @@ LOGIN_URL = "https://www.linkedin.com/login"
 HOME_URL = "https://www.linkedin.com/feed/"  # only a logged-in user sees the feed
 # Logged out, or a security check ("checkpoint") only the user can pass.
 LOGGED_OUT_URL_PARTS = ("/login", "/authwall", "/checkpoint", "/uas/login", "/signup")
+# A job page LinkedIn shows to a signed-out visitor (seen 2026-10-05: "Join LinkedIn" with
+# "Agree & Join" instead of the job).
+LOGGED_OUT_TEXTS = ("agree & join", "join linkedin", "sign in to see who you already know")
 # VERIFY: text the logged-in feed shows (lower case).
 LOGGED_IN_MARKERS = ("start a post", "my network", "messaging")
 # LinkedIn answers suspected automation with HTTP 999 or a "request denied" page.
