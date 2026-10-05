@@ -35,6 +35,7 @@ def _platform(kind: str) -> "Factory":
         from backend.core.config import REPO_ROOT
         from backend.core.profile import load_user_profile
         from integrations.job_sources.platforms import (
+            FounditSource,
             InstahyreSource,
             LinkedInSource,
             NaukriSource,
@@ -47,8 +48,11 @@ def _platform(kind: str) -> "Factory":
             return facts.total_experience_years if set_by_user else None
 
         common: dict[str, Any] = {}
-        if kind == "instahyre":
-            cls: Any = InstahyreSource
+        cls: Any
+        if kind == "foundit":
+            cls = FounditSource
+        elif kind == "instahyre":
+            cls = InstahyreSource
             if cfg.options.get("search_experience_years") is not None:
                 common["search_years"] = int(cfg.options["search_experience_years"])
         else:
@@ -144,6 +148,7 @@ FACTORIES: dict[str, Factory] = {
     "naukri": _platform("naukri"),
     "linkedin": _platform("linkedin"),
     "instahyre": _platform("instahyre"),
+    "foundit": _platform("foundit"),
 }
 
 

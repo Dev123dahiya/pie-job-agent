@@ -31,6 +31,7 @@ from integrations.job_sources.base import (
     parse_naive_as_earliest,
 )
 from integrations.platforms.base import classify_page, parse_relative_age, save_status
+from integrations.platforms.foundit import selectors as foundit
 from integrations.platforms.instahyre import selectors as instahyre
 from integrations.platforms.linkedin import selectors as linkedin
 from integrations.platforms.naukri import selectors as naukri
@@ -347,3 +348,95 @@ def job_posting(ld_json: list[str]) -> dict[str, Any]:
             if isinstance(item, dict) and item.get("@type") == "JobPosting":
                 return item
     return {}
+
+
+class FounditSource(PlatformSearchSource):
+    """foundit: SEARCH ONLY. Its results are almost all copies of LinkedIn jobs or company
+    career pages (checked 2026-10-05): LinkedIn/Naukri/Instahyre copies are dropped, the rest
+    keep their real apply link, and shortlisted ones go to the Manual apply list."""
+
+    name = "foundit"
+    platform = "foundit"
+    selectors = foundit
+    timestamp_kind = "created"
+    discovery_method = "foundit job search (search only), run in a visible browser with your login"
+    docs_url = "https://www.foundit.in"
+
+    def search_jobs(self, task: SearchTask, query: SearchQuery) -> list[RawJob]:
+        term, location = task.params["term"], task.params["location"]
+        result = self._open(
+            lambda: self.browser.fetch_json(
+                foundit.search_url(term, location),
+                foundit.search_api_path(term, location),
+                foundit.SEARCH_API_PREFIX,
+            )
+        )
+        data = result.get("data")
+        if result.get("api_status") != 200 or not isinstance(data, dict):
+            raise SourceError(f"foundit search returned HTTP {result.get('api_status')}")
+        seen_at = self.now().isoformat()
+        jobs = []
+        for o in (data.get("jobSearchResponse") or {}).get("data") or []:
+            if not o.get("jobId") or not o.get("title"):
+                continue  # ads and promoted cards
+            apply_url = str(o.get("redirectUrl") or o.get("applyUrl") or "")
+            if any(host in apply_url.lower() for host in foundit.SKIP_APPLY_HOSTS):
+                continue  # a copy of a job PIE finds on that site itself
+            low = (o.get("minimumExperience") or {}).get("years")
+            high = (o.get("maximumExperience") or {}).get("years")
+            if isinstance(low, int) and low > foundit.MAX_MIN_YEARS:
+                continue
+            page = str(o.get("seoJdUrl") or o.get("jdUrl") or "")
+            payload = {
+                "title": o.get("title"),
+                "company": o.get("companyName"),
+                "location": o.get("locations"),
+                "url": f"{foundit.BASE_URL}{page}" if page.startswith("/") else "",
+                "apply_url": apply_url if apply_url.startswith("https://") else "",
+                "experience": f"{low}-{high} Years" if isinstance(low, int) and high else None,
+                "tags": str(o.get("skills") or ""),
+                "created_ms": o.get("createdAt") if isinstance(o.get("createdAt"), int) else None,
+                "search_page": foundit.search_url(term, location),
+                "seen_at": seen_at,
+            }
+            jobs.append(RawJob(source_job_id=str(o["jobId"]), payload=payload))
+        return jobs
+
+    def enrich(self, raw: RawJob) -> RawJob:
+        """The job's full description from foundit's own job-detail request, made from the
+        search page: foundit refuses automated browsers on its job pages (HTTP 403, seen
+        2026-10-05), so PIE never opens them."""
+        if self._details >= self.max_details:
+            return raw
+        self._details += 1
+        page = str(raw.payload.get("search_page") or foundit.HOME_URL)
+        result = self._open(
+            lambda: self.browser.fetch_json(
+                page, foundit.detail_api_path(raw.source_job_id), foundit.DETAIL_API_PREFIX
+            )
+        )
+        detail = (result.get("data") or {}).get("jobDetailResponse") or {}
+        text = re.sub(r"<[^>]+>", " ", str(detail.get("description") or ""))
+        text = re.sub(r"[ \t]+", " ", text).strip()
+        return RawJob(
+            source_job_id=raw.source_job_id,
+            payload={**raw.payload, "description": text} if text else raw.payload,
+        )
+
+    def job_url(self, raw: RawJob) -> str:
+        url = str(raw.payload.get("url") or "")
+        if not url.startswith(f"{foundit.BASE_URL}/"):
+            raise ValueError("foundit job link missing or not on foundit.in")
+        return url.split("?")[0]
+
+    def normalize_job(self, raw: RawJob) -> JobCandidate:
+        job = super().normalize_job(raw)
+        apply_url = str(raw.payload.get("apply_url") or "")
+        return job.model_copy(update={"application_url": apply_url or job.url})
+
+    def _posted(self, p: dict[str, Any]) -> tuple[datetime | None, str]:
+        # When foundit created the listing; for copies that is when foundit picked them up.
+        ms = p.get("created_ms")
+        if isinstance(ms, int) and ms > 0:
+            return datetime.fromtimestamp(ms / 1000, tz=UTC), "created"
+        return None, "unknown"

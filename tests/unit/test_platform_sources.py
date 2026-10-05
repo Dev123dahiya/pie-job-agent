@@ -303,3 +303,54 @@ def test_fetch_json_accepts_only_the_allowed_relative_address() -> None:
                 "//evil.invalid/api/v1/job_search?"):  # fmt: skip
         with pytest.raises(BrowserError):
             manager.fetch_json("https://www.instahyre.com/", bad, "/api/v1/job_search?")
+
+
+# --- foundit: search only (checked live 2026-10-05) --------------------------------------
+
+
+class FakeFoundit:
+    def __init__(self, items: list[dict[str, Any]]) -> None:
+        self.items = items
+        self.paths: list[str] = []
+        self.pages: list[str] = []
+
+    def fetch_json(self, page_url: str, path: str, allowed_prefix: str) -> Any:
+        assert path.startswith(allowed_prefix)
+        self.paths.append(path)
+        self.pages.append(page_url)
+        if allowed_prefix == "/middleware/jobsearch?":
+            data: Any = {"jobSearchResponse": {"data": self.items}}
+        else:
+            data = {"jobDetailResponse": {"description": "<div><p>Build <b>LLM</b> apps</p></div>"}}
+        return {"status": 200, "url": page_url, "text": "My profile Logout",
+                "api_status": 200, "data": data}  # fmt: skip
+
+
+def fi_job(i: int, apply_url: str = "https://careers.acme.invalid/jobs/1", low: int = 0) -> Any:
+    return {"jobId": 69257900 + i, "title": "AI Engineer", "companyName": "Acme",
+            "locations": "Gurugram", "redirectUrl": apply_url,
+            "minimumExperience": {"years": low}, "maximumExperience": {"years": low + 2},
+            "createdAt": int(NOW.timestamp() * 1000) - 86_400_000, "skills": "Python, LLM",
+            "seoJdUrl": f"/job/ai-engineer-acme-gurugram-{69257900 + i}"}  # fmt: skip
+
+
+def test_foundit_keeps_only_jobs_it_does_not_copy_from_sites_pie_searches(tmp_path: Path) -> None:
+    from integrations.job_sources.platforms import FounditSource
+
+    items = [
+        fi_job(1),
+        fi_job(2, apply_url="https://www.linkedin.com/jobs/view/4470598660/"),  # LinkedIn copy
+        fi_job(3, low=5),  # far too senior: dropped before any analysis
+        {"title": "", "jobId": None},  # an ad
+    ]
+    browser = FakeFoundit(items)
+    src = source(FounditSource, browser, tmp_path)
+    raws = src.search_jobs(src.plan(query())[0], query())
+    assert [r.source_job_id for r in raws] == ["69257901"]
+    assert "query=Python%20Developer" in browser.paths[0] and "limit=50" in browser.paths[0]
+    assert all("/job/" not in p for p in browser.pages)  # foundit job pages are never opened
+    job = src.normalize_job(src.enrich(raws[0]))
+    assert job.application_url == "https://careers.acme.invalid/jobs/1"
+    assert job.url == "https://www.foundit.in/job/ai-engineer-acme-gurugram-69257901"
+    assert job.posted_at_kind == "created" and job.posted_at == NOW - timedelta(days=1)
+    assert job.description == "Build LLM apps" and job.experience_required == "0-2 Years"

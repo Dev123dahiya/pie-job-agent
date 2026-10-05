@@ -317,7 +317,21 @@ def analyze_job(db: Session, job: Job, ctx: AnalysisContext, log: RunLogger) -> 
         output={"rules": rule_results},
     )
     db.commit()
+    if shortlisted:
+        route_manual_only(db, job)
     return analysis
+
+
+def route_manual_only(db: Session, job: Job) -> None:
+    """A shortlisted job from a search-only source goes to the Manual apply list."""
+    from backend.services.manual_apply import send_to_manual
+    from backend.services.platforms import MANUAL_ONLY_SOURCES
+
+    if (job.source or "").lower() in MANUAL_ONLY_SOURCES:
+        send_to_manual(
+            db, job.id, f"Found on {job.source}, which only lists it: apply on the employer's page "
+            "(the link is here)", EventSource.SYSTEM,
+        )  # fmt: skip
 
 
 # --- Runs ---------------------------------------------------------------------------------
@@ -583,4 +597,8 @@ def reapply_shortlist_rules(
             )
             counts["newly_shortlisted"] += 1
     db.commit()
+    for job in db.scalars(
+        select(Job).where(Job.pipeline_state == JobPipelineState.SHORTLISTED)
+    ).all():
+        route_manual_only(db, job)
     return counts

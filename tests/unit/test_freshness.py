@@ -50,3 +50,21 @@ def test_the_sql_filter_matches_the_per_source_window(db: Session) -> None:
     assert "instahyre-10" in set(
         db.scalars(select(Job.source_job_id).where(freshness_filter(Freshness.FRESH, now, 72)))
     )
+
+
+def test_shortlisted_foundit_jobs_go_to_manual_apply(db: Session) -> None:
+    from backend.services.analysis import route_manual_only
+    from database.enums import JobPipelineState
+    from database.models import Job
+
+    found = Job(source="foundit", source_job_id="1", title="AI Engineer", url="https://www.foundit.in/job/1",
+                application_url="https://careers.acme.invalid/1",
+                pipeline_state=JobPipelineState.SHORTLISTED)  # fmt: skip
+    naukri = Job(source="naukri", source_job_id="2", title="AI Engineer", url="https://www.naukri.com/2",
+                 pipeline_state=JobPipelineState.SHORTLISTED)  # fmt: skip
+    db.add_all([found, naukri])
+    db.commit()
+    route_manual_only(db, found)
+    route_manual_only(db, naukri)
+    assert found.pipeline_state is JobPipelineState.MANUAL_APPLY
+    assert naukri.pipeline_state is JobPipelineState.SHORTLISTED

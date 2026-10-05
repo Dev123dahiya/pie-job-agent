@@ -161,6 +161,16 @@ sources:
     request_delay_seconds: 6.0
     search_experience_years: 1  # the user's choice (2026-10-05)
 
+  # foundit: SEARCH ONLY (the user's choice, 2026-10-05). Its listings are almost all copies of
+  # LinkedIn jobs or company career pages: LinkedIn/Naukri/Instahyre copies are dropped, and
+  # shortlisted jobs go to the Manual apply list with the employer's own apply link.
+  - name: foundit
+    type: foundit
+    enabled: true
+    max_searches: 6
+    max_details: 15
+    request_delay_seconds: 6.0
+
   # Greenhouse Job Board API: official, public, documented, no login required.
   # https://developers.greenhouse.io/job-board.html
   # Add or remove company board tokens (the name in boards.greenhouse.io/<token>).

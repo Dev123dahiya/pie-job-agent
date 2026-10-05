@@ -192,6 +192,13 @@ after Phase C".
   clicking (NOT_CLICKED, attempt dropped); retries after a confirmed "not sent" get a new
   submission key on every platform. Third try: "Application sent!" - CONFIRMED.
   Auto mode is now unlocked on Instahyre (and it is in the daily auto-apply).
+- 2026-10-05 foundit: user logged in. Live look (5 searches, ~60 jobs): almost all listings are
+  copies of LinkedIn jobs or company career pages, none applied on foundit itself. User chose
+  SEARCH-ONLY: FounditSource (page's own /middleware/jobsearch, limit 50; LinkedIn/Naukri/
+  Instahyre copies and min experience > 2 dropped; description via /middleware/jobdetail from
+  the search page). foundit job pages answer 403 "Access Denied" to automation, so PIE never
+  opens them. Shortlisted foundit jobs go straight to Manual apply (MANUAL_ONLY_SOURCES) with
+  the employer's apply link. Enabled in the daily run. Next: Cutshort.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 

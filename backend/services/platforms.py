@@ -28,6 +28,10 @@ APPLY_TYPES: tuple[ApplyType, ...] = (
     "external_link",
 )
 
+# Search-only sources: no applying through them (foundit: its listings are copies of other
+# sites' jobs). A shortlisted job from here goes straight to the Manual apply list.
+MANUAL_ONLY_SOURCES = frozenset({"foundit"})
+
 # Sources whose postings are the employer's own form on a supported ATS (or the test site).
 FORM_SOURCES = frozenset({"greenhouse", "lever", "ashby", "smartrecruiters", "mock"})
 
