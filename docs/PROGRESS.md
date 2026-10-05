@@ -209,6 +209,11 @@ after Phase C".
   (403), which only skips that description (never marks Indeed blocked, never evaded).
   Until Indeed's "Easily apply" form is built (step 2), shortlisted Indeed jobs go to Manual
   apply (MANUAL_ONLY_SOURCES). Enabled in the daily run.
+- 2026-10-05 Indeed DROPPED (user's choice): while starting the "Easily apply" form, Indeed's
+  Cloudflare check ("Just a moment...") appeared on the search page itself for PIE's browser.
+  PIE does not get around bot checks, so Indeed was removed (source, selectors, login helper
+  entry, read_window_data op, config, tests). No Indeed jobs had been stored; nothing applied.
+  The local browser profile data/browser/indeed is left for the user to delete.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 

@@ -32,7 +32,6 @@ from integrations.job_sources.base import (
 )
 from integrations.platforms.base import classify_page, parse_relative_age, save_status
 from integrations.platforms.foundit import selectors as foundit
-from integrations.platforms.indeed import selectors as indeed
 from integrations.platforms.instahyre import selectors as instahyre
 from integrations.platforms.linkedin import selectors as linkedin
 from integrations.platforms.naukri import selectors as naukri
@@ -441,95 +440,3 @@ class FounditSource(PlatformSearchSource):
         if isinstance(ms, int) and ms > 0:
             return datetime.fromtimestamp(ms / 1000, tz=UTC), "created"
         return None, "unknown"
-
-
-class IndeedSource(PlatformSearchSource):
-    """Indeed India: the search page's own embedded results (no job page needed to find
-    jobs); the full description comes from the job page when Indeed shows it. Indeed's bot
-    check on a job page only skips that description: PIE never tries to get around it."""
-
-    name = "indeed"
-    platform = "indeed"
-    selectors = indeed
-    discovery_method = "Indeed India search results, read in a visible browser with your login"
-    docs_url = "https://in.indeed.com"
-
-    def search_jobs(self, task: SearchTask, query: SearchQuery) -> list[RawJob]:
-        days = -(-query.max_age_hours // 24) if query.max_age_hours else None  # ceil
-        url = indeed.search_url(task.params["term"], task.params["location"], days)
-        result = self._open(lambda: self.browser.read_window_data(url, indeed.RESULTS_PATH))
-        data = result.get("data")
-        if data is None:
-            raise SourceError("Indeed: the search page had no results data (page changed?)")
-        seen_at = self.now().isoformat()
-        jobs = []
-        for o in data if isinstance(data, list) else []:
-            key = str(o.get("jobkey") or "")
-            if not re.fullmatch(r"[0-9a-f]{16}", key) or o.get("expired"):
-                continue
-            salary = o.get("extractedSalary") or {}
-            payload = {
-                "title": o.get("displayTitle") or o.get("title"),
-                "company": o.get("company"),
-                "location": o.get("formattedLocation"),
-                "snippet": re.sub(r"<[^>]+>", " ", str(o.get("snippet") or "")).strip(),
-                "posted": o.get("formattedRelativeTime"),
-                "easy_apply": bool(o.get("indeedApplyEnabled")),
-                "salary": f"{salary.get('min')}-{salary.get('max')} {salary.get('type')}"
-                if salary.get("min") or salary.get("max")
-                else None,
-                "seen_at": seen_at,
-            }
-            jobs.append(RawJob(source_job_id=key, payload=payload))
-        return jobs
-
-    def enrich(self, raw: RawJob) -> RawJob:
-        """The job page's full description and exact datePosted, when Indeed shows the page.
-        A bot check there only skips this job's details (nothing is saved as "blocked")."""
-        if self._details >= self.max_details:
-            return raw
-        self._details += 1
-        if self._requests:
-            self.sleep(self.delay)
-        self._requests += 1
-        try:
-            page = self.browser.read_page_text(self.job_url(raw))
-        except Exception:  # the browser failed for this page: keep the search-page data
-            return raw
-        text = str(page.get("text") or "")
-        check = classify_page(indeed, str(page.get("url") or ""), page.get("status"), text)
-        if check.state == "blocked":
-            return raw
-        posting = job_posting(page.get("ld_json") or [])
-        return RawJob(
-            source_job_id=raw.source_job_id,
-            payload={
-                **raw.payload,
-                "description": text,
-                "date_posted": posting.get("datePosted"),
-            },  # fmt: skip
-        )
-
-    def job_url(self, raw: RawJob) -> str:
-        if not re.fullmatch(r"[0-9a-f]{16}", raw.source_job_id):
-            raise ValueError("Indeed job key is not 16 hex characters")
-        return indeed.job_url(raw.source_job_id)
-
-    def normalize_job(self, raw: RawJob) -> JobCandidate:
-        job = super().normalize_job(raw)
-        easy = bool(raw.payload.get("easy_apply"))
-        apply = "Indeed's own form (Easily apply)" if easy else "the company's site"
-        extra = {"apply_on": apply, "easy_apply": easy}
-        return job.model_copy(update={"raw": {**(job.raw or {}), **extra}})
-
-    def _posted(self, p: dict[str, Any]) -> tuple[datetime | None, str]:
-        raw = str(p.get("date_posted") or "")
-        if raw:  # the job page's exact time (e.g. 2026-10-02T12:22:13.051Z)
-            try:
-                return datetime.fromisoformat(raw.replace("Z", "+00:00")), "published"
-            except ValueError:
-                pass
-        text = str(p.get("posted") or "")
-        if text.strip().lower() == "just posted":
-            text = "Today"
-        return super()._posted({**p, "posted": text})

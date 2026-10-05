@@ -7,7 +7,6 @@
     python -m backend.scripts.login instahyre
     python -m backend.scripts.login foundit
     python -m backend.scripts.login cutshort
-    python -m backend.scripts.login indeed
 
 A plain, normal browser window (no automation attached, so "Sign in with Google" works)
 opens with PIE's own profile for that platform (data/browser/<name>/, git-ignored); close it
@@ -29,7 +28,6 @@ from integrations.browser.manager import launch_channels
 from integrations.platforms.base import LoginCheck, classify_page, save_status
 from integrations.platforms.cutshort import selectors as cutshort
 from integrations.platforms.foundit import selectors as foundit
-from integrations.platforms.indeed import selectors as indeed
 from integrations.platforms.instahyre import selectors as instahyre
 from integrations.platforms.linkedin import selectors as linkedin
 from integrations.platforms.naukri import selectors as naukri
@@ -40,7 +38,6 @@ PLATFORMS: dict[str, Any] = {
     "instahyre": instahyre,
     "foundit": foundit,
     "cutshort": cutshort,
-    "indeed": indeed,
 }
 DATA_DIR = REPO_ROOT / "data"
 
