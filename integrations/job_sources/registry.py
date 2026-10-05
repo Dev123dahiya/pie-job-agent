@@ -36,6 +36,7 @@ def _platform(kind: str) -> "Factory":
         from backend.core.profile import load_user_profile
         from integrations.job_sources.platforms import (
             FounditSource,
+            IndeedSource,
             InstahyreSource,
             LinkedInSource,
             NaukriSource,
@@ -51,6 +52,8 @@ def _platform(kind: str) -> "Factory":
         cls: Any
         if kind == "foundit":
             cls = FounditSource
+        elif kind == "indeed":
+            cls = IndeedSource
         elif kind == "instahyre":
             cls = InstahyreSource
             if cfg.options.get("search_experience_years") is not None:
@@ -149,6 +152,7 @@ FACTORIES: dict[str, Factory] = {
     "linkedin": _platform("linkedin"),
     "instahyre": _platform("instahyre"),
     "foundit": _platform("foundit"),
+    "indeed": _platform("indeed"),
 }
 
 

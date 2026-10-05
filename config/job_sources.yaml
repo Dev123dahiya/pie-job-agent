@@ -171,6 +171,16 @@ sources:
     max_details: 15
     request_delay_seconds: 6.0
 
+  # Indeed India: SEARCH (step 1). Results come from the search page's own data; job pages
+  # sometimes show a bot check, which only skips that job's full description. Until Indeed's
+  # "Easily apply" form is built, shortlisted Indeed jobs go to the Manual apply list.
+  - name: indeed
+    type: indeed
+    enabled: true
+    max_searches: 5
+    max_details: 10
+    request_delay_seconds: 10.0
+
   # Greenhouse Job Board API: official, public, documented, no login required.
   # https://developers.greenhouse.io/job-board.html
   # Add or remove company board tokens (the name in boards.greenhouse.io/<token>).

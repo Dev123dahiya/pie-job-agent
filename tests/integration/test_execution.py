@@ -1278,6 +1278,8 @@ def test_browser_manager_exposes_only_fixed_operations() -> None:
         # Instahyre search: a GET to the platform's own search address, from its logged-in
         # page; the allowed address prefix comes from the selectors file.
         "fetch_json",
+        # Indeed search: the search page's own embedded results, read by property names.
+        "read_window_data",
         # The one Naukri click: only from naukri_apply.submit after the user's "yes".
         "click_platform_apply",
         # LinkedIn Easy Apply panel: open, read, Next/Review/Back only, Submit (refused for

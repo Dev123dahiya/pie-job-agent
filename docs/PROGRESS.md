@@ -202,6 +202,13 @@ after Phase C".
 - 2026-10-05 Cutshort: login helper added (cutshort.io, logged-out /profile redirects), then
   PAUSED by the user ("leave cutshort for now"). Not searched, not applied. Remaining in the
   agreed order: Indeed, Wellfound; company career pages also paused.
+- 2026-10-05 Indeed step 1 (search): user logged in (Google). Search pages work in PIE's
+  Chrome and embed their results (window.mosaic.providerData jobcards: jobkey, pubDate, age,
+  indeedApplyEnabled...): IndeedSource reads that data (sort=date, fromage=days); job pages
+  give full description + exact datePosted but sometimes show a "Just a moment..." bot check
+  (403), which only skips that description (never marks Indeed blocked, never evaded).
+  Until Indeed's "Easily apply" form is built (step 2), shortlisted Indeed jobs go to Manual
+  apply (MANUAL_ONLY_SOURCES). Enabled in the daily run.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 

@@ -63,6 +63,15 @@ COVERED_BY = """(el) => {
   if (!top || el === top || el.contains(top)) return null;
   return (top.tagName + "." + String(top.className || "")).slice(0, 120);
 }"""
+# Walk window by property names (data only) and return a JSON copy of what is there.
+READ_WINDOW_PATH = """(path) => {
+  let value = window;
+  for (const key of path) {
+    if (value === null || value === undefined) return null;
+    value = value[key];
+  }
+  return value === undefined ? null : JSON.parse(JSON.stringify(value));
+}"""
 # A page's own schema.org data (e.g. JobPosting with datePosted): read, never executed.
 READ_LD_JSON = """() => [...document.querySelectorAll('script[type="application/ld+json"]')]
   .map((s) => s.textContent || "")"""
@@ -595,6 +604,33 @@ class BrowserManager:
                     "text": text,
                     "items": items,
                 }
+            finally:
+                page.close()
+                if context is not self._w.persistent:
+                    context.close()
+
+        return self._call(op)
+
+    def read_window_data(self, url: str, path: list[str]) -> dict[str, Any]:
+        """Open ``url`` and return the page's own data at ``window[path[0]][path[1]]...``
+        (e.g. the search results a page embeds). ``path`` is plain property names from a
+        selectors file, walked by fixed code: nothing the caller passes is executed."""
+        if not path or not all(isinstance(p, str) and p for p in path):
+            raise BrowserError("NOT_FOUND", "No data path given")
+
+        def op() -> dict[str, Any]:
+            self._launch()
+            context = self._w.persistent or self._w.browser.new_context()
+            page = context.new_page()
+            try:
+                page.set_default_timeout(self.timeout_ms)
+                response = page.goto(url, wait_until="domcontentloaded")
+                self._settle(page)
+                page.wait_for_timeout(2000)
+                data = page.evaluate(READ_WINDOW_PATH, path)
+                text = page.inner_text("body")[:3000] if page.locator("body").count() else ""
+                return {"status": response.status if response else None, "url": page.url,
+                        "text": text, "data": data}  # fmt: skip
             finally:
                 page.close()
                 if context is not self._w.persistent:
