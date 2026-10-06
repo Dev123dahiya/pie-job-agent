@@ -1,10 +1,16 @@
 """Daily discovery + analysis from the command line.
 
-python -m backend.scripts.daily run      # run it now (manual trigger), print the report
+python -m backend.scripts.daily run      # find + score new jobs now, print the report
+python -m backend.scripts.daily apply    # AUTO-apply now (real applications), every platform
+python -m backend.scripts.daily apply --platform linkedin   # ...or one platform
+python -m backend.scripts.daily all      # run, then apply: the whole daily run, now
 python -m backend.scripts.daily status   # schedule and the latest daily run
 
-The same run happens automatically once a day inside the API process (DAILY_RUN_ENABLED,
-DAILY_RUN_TIME). Discovery and analysis only: no applications, no browser, no submissions.
+The same happens automatically once a day inside the API process (DAILY_RUN_ENABLED,
+DAILY_RUN_TIME, DAILY_AUTO_APPLY). "apply" sends REAL applications on every platform where
+auto mode is unlocked, with all of PIE's rules: the live switches in .env, daily limits,
+duplicate checks, the stop on site warnings, and a pause for any question without a saved
+answer (answer those on the Needs my input page). Typing the command is the confirmation.
 """
 
 import argparse
@@ -71,6 +77,65 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_apply(args: argparse.Namespace) -> int:
+    from sqlalchemy import select
+
+    from agent.tools import build_default_registry
+    from backend.core.profile import load_user_profile
+    from backend.services.daily_auto import DAILY_AUTO_PLATFORMS, run_daily_auto
+    from backend.services.limits import usage
+    from database.models import BrowserSession, Job
+    from integrations.platforms.browser import get_platform_browser
+
+    settings = get_settings()
+    factory = get_session_factory()
+    platforms = (args.platform,) if args.platform else DAILY_AUTO_PLATFORMS
+    opened: dict[str, Any] = {}
+
+    def browser(platform: str) -> Any:
+        opened[platform] = get_platform_browser(platform, settings)
+        return opened[platform]
+
+    try:
+        out = run_daily_auto(
+            factory, settings, load_user_profile(), build_default_registry(), browser,
+            platforms=platforms, standing_confirmation=False,
+        )  # fmt: skip
+    finally:
+        for b in opened.values():
+            b.shutdown()
+    with factory() as db:
+        for platform, result in out.items():
+            if not isinstance(result, dict) or not result.get("run_id"):
+                print(
+                    f"{platform}: {result.get('skipped') if isinstance(result, dict) else result}"
+                )
+                continue
+            print(f"{platform}: {result['counts']}")
+            sessions = db.scalars(
+                select(BrowserSession).where(BrowserSession.run_id == result["run_id"])
+            ).all()
+            for s in sessions:
+                job = db.get(Job, s.job_id)
+                if job is None:
+                    continue
+                note = "; ".join(m.get("question", "") for m in s.missing_answers or [])
+                company = job.company.name if job.company else "?"
+                asks = f"  (asks: {note})" if note else ""
+                print(f"  - {s.state.value:<17} {job.title} @ {company}{asks}")
+        today = usage(db, settings.automation_path, settings.timezone)
+        used = {u.platform: f"{u.used}/{u.limit}" for u in today}
+    print(f"Today: {used}")
+    return 0
+
+
+def cmd_all(args: argparse.Namespace) -> int:
+    code = cmd_run(args)
+    if code != 0:
+        return code
+    return cmd_apply(args)
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     settings = get_settings()
     tz = ZoneInfo(settings.timezone)
@@ -100,6 +165,13 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("run", help="run daily discovery + analysis now")
     r.add_argument("--json", action="store_true", help="print the full report as JSON")
     r.set_defaults(func=cmd_run)
+    a = sub.add_parser("apply", help="AUTO-apply now (real applications) where auto is unlocked")
+    a.add_argument("--platform", choices=["naukri", "linkedin", "instahyre"])
+    a.set_defaults(func=cmd_apply)
+    al = sub.add_parser("all", help="find + score new jobs, then auto-apply (the daily run, now)")
+    al.add_argument("--json", action="store_true", help="print the full report as JSON")
+    al.add_argument("--platform", choices=["naukri", "linkedin", "instahyre"])
+    al.set_defaults(func=cmd_all)
     s = sub.add_parser("status", help="show the schedule and the latest daily run")
     s.set_defaults(func=cmd_status)
     args = parser.parse_args(argv)

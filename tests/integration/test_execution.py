@@ -3612,3 +3612,34 @@ def test_a_live_linkedin_form_paused_for_answers_is_discarded(
     assert run["report"]["counts"] == {"linkedin_needs_input": 1}
     assert li_site.discards == ["unknown"] and li_site.submissions == []  # nothing left open
     assert job_state(db, job_id) is S.BLOCKED_NEEDS_USER
+
+
+def test_the_apply_command_needs_no_daily_switch_and_can_pick_a_platform(
+    db: Session,
+    session_factory: Any,
+    live_settings: Settings,
+    exec_profile: UserProfile,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.services import daily_auto
+    from backend.services.daily_auto import run_daily_auto
+
+    def unlocked(db: Any, p: str) -> dict[str, Any]:
+        return {"platform": p, "unlocked": True, "missing": []}
+
+    monkeypatch.setattr(daily_auto, "auto_status", unlocked)
+    monkeypatch.setattr("backend.services.auto_mode.auto_status", unlocked)
+    job_id = _shortlisted_naukri_job(db)
+    fake = FakeNaukri()
+    assert live_settings.daily_auto_apply is False  # the daily switch is off
+    out = run_daily_auto(session_factory, live_settings, exec_profile, build_default_registry(),
+                         lambda platform: fake, platforms=("naukri",),
+                         standing_confirmation=False)  # fmt: skip
+    assert list(out) == ["naukri"] and out["naukri"]["counts"].get("auto_submitted") == 1
+    db.expire_all()
+    assert job_state(db, job_id) is S.SUBMITTED and len(fake.clicks) == 1
+    # the live switches still apply: development mode refuses
+    dev = live_settings.model_copy(update={"development_mode": True})
+    refused = run_daily_auto(session_factory, dev, exec_profile, build_default_registry(),
+                             lambda platform: fake, standing_confirmation=False)  # fmt: skip
+    assert "skipped" in refused and len(fake.clicks) == 1

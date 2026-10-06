@@ -69,15 +69,23 @@ def run_daily_auto(
     profile: UserProfile,
     registry: ToolRegistry,
     platform_browser: Callable[[str], Any],
+    *,
+    platforms: tuple[Platform, ...] = DAILY_AUTO_PLATFORMS,
+    standing_confirmation: bool = True,
 ) -> dict[str, Any]:
-    """One auto-apply run per unlocked platform. Returns {platform: outcome}."""
+    """One auto-apply run per unlocked platform. Returns {platform: outcome}.
+    ``standing_confirmation``: the daily run relies on DAILY_AUTO_APPLY; the user's own
+    command (python -m backend.scripts.daily apply) is the confirmation itself."""
     out: dict[str, Any] = {}
-    if not settings.daily_auto_apply:
+    if standing_confirmation and not settings.daily_auto_apply:
         return {"skipped": "DAILY_AUTO_APPLY is off"}
     block = live_execution_block(settings)
     if block is not None:
         return {"skipped": block[1]}
-    for platform in DAILY_AUTO_PLATFORMS:
+    for platform in platforms:
+        if platform not in DAILY_AUTO_PLATFORMS:
+            out[platform] = {"skipped": "auto-apply works on Naukri, LinkedIn and Instahyre"}
+            continue
         with factory() as db:
             status = auto_status(db, platform)
             if not status["unlocked"]:

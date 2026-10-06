@@ -246,6 +246,9 @@ after Phase C".
   clicked Submit (no attempt recorded): the paused LIVE form had been left open in the window;
   recorded as applied outside PIE. Paused LinkedIn forms are now always discarded.
   Day total: LinkedIn 4/5 + Intellicredence (outside PIE), Instahyre 1/5.
+- 2026-10-06 Commands (user asked): `python -m backend.scripts.daily apply [--platform x]`
+  auto-applies now (the command is the confirmation; live switches, unlock, limits and pauses
+  as always) and `daily all` = run + apply. Same code as the 07:00 daily auto-apply.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 
