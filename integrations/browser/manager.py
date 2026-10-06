@@ -453,15 +453,28 @@ class BrowserManager:
                         raise BrowserError("NOT_FOUND", f"Option {option} of {field_id} is hidden")
                     question = stand_in.get_attribute("aria-label") or ""
                     text = " ".join(stand_in.inner_text().split())
+                    if not text:
+                        return False
+                    same_question = (
+                        frame.locator(f'[aria-label="{_css_text(question)}"]')
+                        if question
+                        else frame.locator("[role=radio], [role=checkbox]")
+                    )
+                    # LinkedIn marks the drawn option (aria-checked) and redraws the group, so
+                    # PIE's own markers are gone: find the option again by question + text.
+                    option_now = same_question.filter(has_text=text)
+                    chosen = option_now.and_(frame.locator("[aria-checked='true']"))
+                    live.page.wait_for_timeout(700)  # a click before the page is ready is lost
                     stand_in.click()
                     live.page.wait_for_timeout(500)
-                    # LinkedIn marks the drawn option (aria-checked) and redraws the group, so
-                    # PIE's own markers are gone: find the chosen option again by its text.
-                    chosen = frame.locator("[role=radio][aria-checked='true'], "
-                                           "[role=checkbox][aria-checked='true']")  # fmt: skip
-                    if question:
-                        chosen = chosen.and_(frame.locator(f'[aria-label="{_css_text(question)}"]'))
-                    return chosen.filter(has_text=text).count() > 0 if text else False
+                    if chosen.count() > 0:
+                        return True
+                    # Not taken (seen 2026-10-06): press the real input of that option once.
+                    real = option_now.locator("input[type=radio], input[type=checkbox]")
+                    if real.count() == 1:
+                        real.evaluate("(el) => el.click()")
+                        live.page.wait_for_timeout(500)
+                    return chosen.count() > 0
                 return bool(target.is_checked())
             loc = frame.locator(f'[data-pie-field="{field_id}"]')
             if loc.count() != 1:

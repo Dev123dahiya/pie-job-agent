@@ -24,7 +24,10 @@ PAGE = """<!doctype html><html><head><title>Job | LinkedIn</title></head><body>
 const CASE = "%CASE%";
 const SENT = CASE === "submitted" ? "Application submitted" : "Your application was sent to Acme";
 // Like LinkedIn: the drawn option gets aria-checked; the hidden input is NOT checked.
+// "late" case: like a page not ready yet, the FIRST click on an option is ignored.
+let ignored = false;
 function pick(el) {
+  if (CASE === "lateclick" && !ignored) { ignored = true; return; }
   for (const r of el.parentElement.querySelectorAll("[role=radio]")) {
     r.setAttribute("aria-checked", "false");
   }
@@ -49,7 +52,7 @@ const STEPS = [
    (CASE === "unknown"
      ? `<label for="k8s">How many years of Kubernetes experience do you have?</label>
         <input id="k8s" required>` : "") +
-   (CASE === "degree" || CASE === "lateq"  // live markup (2026-10-05): hidden radios
+   (["degree", "lateq", "lateclick"].includes(CASE)  // live markup (2026-10-05): hidden radios
      ? `<div><p>Have you completed the following level of education: Bachelor's Degree?*</p>
         <fieldset role="radiogroup">${["Yes", "No"].map((o, i) => `
           <div role="radio" tabindex="0" aria-checked="false" style="padding:4px"

@@ -3659,3 +3659,18 @@ def test_a_browser_that_closed_is_started_again(tmp_path: Path, profile_folder: 
         assert "job page" in manager.read_page_text(page)["text"]  # reopened, not "closed"
     finally:
         manager.shutdown()
+
+
+def test_linkedin_option_click_ignored_once_is_pressed_again(
+    client: Any, api: Any, db: Session, li_job: Any, li_site: Any
+) -> None:
+    li_job("lateclick")  # the page ignores the first click on an option (not ready yet)
+    assert _li_run(client)["report"]["counts"] == {"linkedin_needs_input": 1}
+    [question] = [q for j in client.get("/api/needs-input").json()["jobs"]
+                  for q in j["questions"] if "Bachelor" in q["question"]]  # fmt: skip
+    client.post("/api/needs-input/answers", json={"answers": [
+        {"question_key": question["question_key"], "question": question["question"],
+         "answer": "Yes"}]})  # fmt: skip
+    run = _li_run(client)
+    assert run["report"]["counts"] == {"linkedin_dry_run_complete": 1}, run["report"]["failures"]
+    assert li_site.submissions == []

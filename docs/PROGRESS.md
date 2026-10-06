@@ -256,6 +256,11 @@ after Phase C".
   relaunches a browser that closed; a stuck LinkedIn step waits 2 s and reads afresh; the
   apply command's printing crash (run id type). An earlier stray run (user's own command,
   window closed) had to be closed by hand.
+- 2026-10-06 Retry: Skandor SUBMITTED; Naukri jobs (Applied Materials, Aptos) are company-
+  site only -> Manual apply. Work360 stuck again even idle: the click on "Yes" landed (focus)
+  but LinkedIn ignored it (not ready). Fix: wait 0.7 s before clicking an option; if it is
+  still not selected, press the option's real input once and check again. Work360 SUBMITTED.
+  Today: LinkedIn 3/5. Origin waits for the user's joining date + project link.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 
