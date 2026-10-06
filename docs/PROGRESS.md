@@ -249,6 +249,13 @@ after Phase C".
 - 2026-10-06 Commands (user asked): `python -m backend.scripts.daily apply [--platform x]`
   auto-applies now (the command is the confirmation; live switches, unlock, limits and pauses
   as always) and `daily all` = run + apply. Same code as the 07:00 daily auto-apply.
+- 2026-10-06 First `daily all`: 1232 found / 130 new / 23 analyzed / 8 shortlisted; Data
+  Eminence (LinkedIn) SUBMITTED; Origin paused (joining date, project link); Skandor + Work360
+  "stuck" on the degree question under load (fine in an idle dry run); Naukri "browser has
+  been closed". Fixes: Chrome quits when its last tab closes - PIE keeps a blank tab open and
+  relaunches a browser that closed; a stuck LinkedIn step waits 2 s and reads afresh; the
+  apply command's printing crash (run id type). An earlier stray run (user's own command,
+  window closed) had to be closed by hand.
 - Tests no longer read the real .env (one failure printed the Adzuna key into a local test
   log; the user was advised to regenerate it).
 

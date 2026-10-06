@@ -128,6 +128,8 @@ class _Worker:
     pw: Any = None
     browser: Any = None
     persistent: Any = None
+    keep_alive: Any = None  # one blank tab: Chrome quits when its last tab closes
+    closed: bool = False  # the browser closed under us (window closed, crash)
     live: "dict[str, _Live]" = field(default_factory=dict)
 
 
@@ -246,6 +248,9 @@ class BrowserManager:
     # --- browser-thread internals ---
 
     def _launch(self) -> None:
+        if self._w.closed:  # Chrome went away (last tab closed, window closed): start again
+            self._teardown()
+            self._w.closed = False
         if self._w.browser is not None or self._w.persistent is not None:
             return
         from playwright.sync_api import sync_playwright
@@ -260,11 +265,14 @@ class BrowserManager:
                 kwargs["channel"] = ch
             try:
                 if self.user_data_dir:
-                    self._w.persistent = chromium.launch_persistent_context(
-                        str(self.user_data_dir), **kwargs
-                    )
+                    ctx = chromium.launch_persistent_context(str(self.user_data_dir), **kwargs)
+                    ctx.on("close", lambda _ctx: setattr(self._w, "closed", True))
+                    self._w.persistent = ctx
+                    # Keep one tab open for the whole session; operations open their own.
+                    self._w.keep_alive = ctx.pages[0] if ctx.pages else ctx.new_page()
                 else:
                     self._w.browser = chromium.launch(**kwargs)
+                    self._w.browser.on("disconnected", lambda _b: setattr(self._w, "closed", True))
                 return
             except Exception as exc:  # try the next installed browser
                 last = exc
@@ -284,7 +292,7 @@ class BrowserManager:
                 self._w.pw.stop()
             except Exception:
                 logger.debug("playwright stop failed", exc_info=True)
-        self._w.pw = self._w.browser = self._w.persistent = None
+        self._w.pw = self._w.browser = self._w.persistent = self._w.keep_alive = None
 
     def _close_live(self, sid: str) -> None:
         live = self._w.live.pop(sid, None)

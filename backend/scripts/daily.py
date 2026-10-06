@@ -16,6 +16,7 @@ answer (answer those on the Needs my input page). Typing the command is the conf
 import argparse
 import json
 import sys
+import uuid
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -113,7 +114,9 @@ def cmd_apply(args: argparse.Namespace) -> int:
                 continue
             print(f"{platform}: {result['counts']}")
             sessions = db.scalars(
-                select(BrowserSession).where(BrowserSession.run_id == result["run_id"])
+                select(BrowserSession).where(
+                    BrowserSession.run_id == uuid.UUID(str(result["run_id"]))
+                )
             ).all()
             for s in sessions:
                 job = db.get(Job, s.job_id)

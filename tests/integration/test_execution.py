@@ -3643,3 +3643,19 @@ def test_the_apply_command_needs_no_daily_switch_and_can_pick_a_platform(
     refused = run_daily_auto(session_factory, dev, exec_profile, build_default_registry(),
                              lambda platform: fake, standing_confirmation=False)  # fmt: skip
     assert "skipped" in refused and len(fake.clicks) == 1
+
+
+@pytest.mark.parametrize("profile_folder", [False, True])
+def test_a_browser_that_closed_is_started_again(tmp_path: Path, profile_folder: bool) -> None:
+    from urllib.parse import quote
+
+    folder = tmp_path / "profile" if profile_folder else None
+    manager = BrowserManager(headless=True, timeout_ms=15_000, user_data_dir=folder)
+    page = "data:text/html," + quote("<html><body><p>job page</p></body></html>")
+    try:
+        assert "job page" in manager.read_page_text(page)["text"]
+        # the browser goes away (window closed / last tab closed / crash)
+        manager._call(lambda: (manager._w.persistent or manager._w.browser).close())
+        assert "job page" in manager.read_page_text(page)["text"]  # reopened, not "closed"
+    finally:
+        manager.shutdown()

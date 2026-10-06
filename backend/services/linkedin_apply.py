@@ -15,6 +15,7 @@ never uploads); without one, LinkedIn's saved resume is used. Field values
 are never stored: sessions record labels, answer keys and sources only.
 """
 
+import time
 from typing import Any
 
 from sqlalchemy import select
@@ -166,6 +167,8 @@ def run(ctx: svc.ExecContext, job: Job) -> dict[str, Any]:
                     raise svc.ExecutionError(
                         "PRECONDITION_FAILED", "The form did not move to the next step (stuck)"
                     )
+                time.sleep(2)  # a slow page: let LinkedIn finish drawing, then read it afresh
+                panel = ctx.browser.panel_snapshot(sid)
                 continue
             stuck = 0
         raise svc.ExecutionError(
