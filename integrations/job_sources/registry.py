@@ -1,6 +1,7 @@
 """Builds JobSource adapters from config. New adapters register a factory here."""
 
 from collections.abc import Callable
+from typing import Any
 
 from backend.core.config import Settings
 from integrations.job_sources.adzuna import AdzunaSource
@@ -25,6 +26,50 @@ def _greenhouse(cfg: SourceConfig, all_cfg: JobSourcesConfig, settings: Settings
         request_delay_seconds=float(opts.get("request_delay_seconds", 1.0)),
         fetch_pay_ranges=bool(opts.get("fetch_pay_ranges", True)),
     )
+
+
+def _platform(kind: str) -> "Factory":
+    """Naukri / LinkedIn / Instahyre: searched in the platform's own visible browser."""
+
+    def build(cfg: SourceConfig, all_cfg: JobSourcesConfig, settings: Settings) -> JobSource:
+        from backend.core.config import REPO_ROOT
+        from backend.core.profile import load_user_profile
+        from integrations.job_sources.platforms import (
+            FounditSource,
+            InstahyreSource,
+            LinkedInSource,
+            NaukriSource,
+        )
+        from integrations.platforms.browser import get_platform_browser
+
+        def years() -> float | None:
+            facts = load_user_profile(settings.user_profile_path).verified_profile
+            set_by_user = "total_experience_years" in facts.model_fields_set
+            return facts.total_experience_years if set_by_user else None
+
+        common: dict[str, Any] = {}
+        cls: Any
+        if kind == "foundit":
+            cls = FounditSource
+        elif kind == "instahyre":
+            cls = InstahyreSource
+            if cfg.options.get("search_experience_years") is not None:
+                common["search_years"] = int(cfg.options["search_experience_years"])
+        else:
+            cls = NaukriSource if kind == "naukri" else LinkedInSource
+        return cls(
+            **common,
+            browser=get_platform_browser(kind, settings),
+            skills_vocabulary=all_cfg.skills_vocabulary,
+            data_dir=REPO_ROOT / "data",
+            max_searches=int(cfg.options.get("max_searches", 4)),
+            pages=int(cfg.options.get("pages", 1)),
+            max_details=int(cfg.options.get("max_details", 15)),
+            request_delay_seconds=_delay(cfg, 8.0),
+            experience_years=years,
+        )
+
+    return build
 
 
 def _mock(cfg: SourceConfig, all_cfg: JobSourcesConfig, settings: Settings) -> JobSource:
@@ -100,6 +145,10 @@ FACTORIES: dict[str, Factory] = {
     "remotive": _remotive,
     "adzuna": _adzuna,
     "mock": _mock,
+    "naukri": _platform("naukri"),
+    "linkedin": _platform("linkedin"),
+    "instahyre": _platform("instahyre"),
+    "foundit": _platform("foundit"),
 }
 
 

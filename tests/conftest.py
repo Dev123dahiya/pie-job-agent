@@ -14,12 +14,13 @@ os.environ["DAILY_RUN_ENABLED"] = "false"
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, event
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import database.models  # noqa: F401
 from backend.api import deps
+from backend.core.config import Settings as _Settings
 from backend.core.config import get_settings
 from backend.core.profile import UserProfile
 from backend.main import create_app
@@ -29,20 +30,18 @@ from database.session import get_db
 from integrations.job_sources.config import JobSourcesConfig, load_job_sources_config
 from integrations.job_sources.mock import MockSource
 
+# Tests never read the user's real .env (it holds keys and the live switches). Settings come
+# only from code defaults and what each test sets.
+_Settings.model_config["env_file"] = None
+get_settings.cache_clear()
+
 
 @pytest.fixture
 def engine() -> Iterator[Engine]:
-    from sqlalchemy import create_engine
+    from database.session import build_engine
 
-    eng = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-
-    @event.listens_for(eng, "connect")
-    def _fk_on(dbapi_conn, _):  # type: ignore[no-untyped-def]
-        dbapi_conn.execute("PRAGMA foreign_keys=ON")
+    # The app's own SQLite setup (foreign keys, busy timeout, savepoints), in memory.
+    eng = build_engine("sqlite+pysqlite:///:memory:", poolclass=StaticPool)
 
     Base.metadata.create_all(eng)
     yield eng
@@ -373,6 +372,7 @@ def tailor_profile() -> UserProfile:
                 "verified_answers": {
                     "work_authorization": "Yes",
                     "notice_period": "Immediate",
+                    "current_ctc": "0 (fresher)",
                     "expected_salary": "10 LPA",
                     "willing_to_relocate": "Yes",
                 },
@@ -437,3 +437,25 @@ def good_resume(**overrides: Any) -> dict[str, Any]:
     }  # fmt: skip
     base.update(overrides)
     return base
+
+
+# --- Guard: tests must never change the real config files ---------------------------------
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _config_files_untouched() -> Iterator[None]:
+    """Fails the run if any test wrote into config/ (they must use temporary copies)."""
+    import hashlib
+
+    folder = Path(__file__).resolve().parents[1] / "config"
+
+    def snapshot() -> dict[str, str]:
+        return {
+            p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(folder.glob("*.yaml"))
+        }
+
+    before = snapshot()
+    yield
+    changed = [n for n, h in snapshot().items() if before.get(n) != h]
+    assert not changed, f"Tests changed real config files: {changed}"

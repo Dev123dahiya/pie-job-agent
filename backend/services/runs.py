@@ -110,6 +110,9 @@ def active_run(db: Session, now: datetime | None = None) -> AgentRun | None:
         else:
             live = run
     db.commit()
+    from backend.services.failed_jobs import fail_orphaned_sessions
+
+    fail_orphaned_sessions(db)  # sessions of runs that ended can never continue
     return live
 
 

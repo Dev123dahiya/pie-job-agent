@@ -78,7 +78,7 @@ TOOLS
 - `JSON`, which becomes `JSONB` on PostgreSQL
 - enums stored as `VARCHAR` without a native DB enum, so adding a value needs no migration
 
-Production runs on PostgreSQL; tests run on SQLite. A migration test checks that `alembic upgrade head` produces exactly the schema the models declare.
+PIE runs on SQLite by default (`data/pie.db`, WAL mode, a busy timeout, and SAVEPOINTs always inside a real transaction; see `database/session.py`); PostgreSQL is optional. A migration test checks that `alembic upgrade head` produces exactly the schema the models declare, on SQLite always and on PostgreSQL when `PIE_TEST_POSTGRES_URL` is set.
 
 ## Autonomous agent (Phase 3)
 

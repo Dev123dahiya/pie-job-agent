@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { APPLY_TYPE_LABEL, STATUS_LABEL, STATUS_ORDER } from "@/lib/home";
 import type { JobFilterOptions } from "@/lib/types";
 
 type Params = Record<string, string | string[] | undefined>;
@@ -75,6 +76,52 @@ export function JobFilters({ params, options }: { params: Params; options: JobFi
             <option value="salary">Highest salary</option>
             <option value="company">Company A–Z</option>
           </select>
+        </Field>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+        <Field label="Status">
+          <select name="status_group" defaultValue={first(params.status_group)} className={FIELD}>
+            <option value="">Any</option>
+            {STATUS_ORDER.map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABEL[s]}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Platform">
+          <select name="platform" defaultValue={first(params.platform)} className={FIELD}>
+            <option value="">Any</option>
+            <option value="naukri">Naukri</option>
+            <option value="linkedin">LinkedIn</option>
+            <option value="instahyre">Instahyre</option>
+            <option value="company_site">Company sites</option>
+          </select>
+        </Field>
+        <Field label="Apply type">
+          <select name="apply_type" defaultValue={first(params.apply_type)} className={FIELD}>
+            <option value="">Any</option>
+            {Object.entries(APPLY_TYPE_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Company">
+          <input name="company" defaultValue={first(params.company)} placeholder="Any" maxLength={200} className={FIELD} />
+        </Field>
+        <Field label="Min. match score">
+          <input name="min_score" type="number" min={0} max={100} defaultValue={first(params.min_score)} placeholder="0" className={FIELD} />
+        </Field>
+        <Field label="Max. match score">
+          <input name="max_score" type="number" min={0} max={100} defaultValue={first(params.max_score)} placeholder="100" className={FIELD} />
+        </Field>
+        <Field label="Found from">
+          <input name="found_from" type="date" defaultValue={first(params.found_from)} className={FIELD} />
+        </Field>
+        <Field label="Found until">
+          <input name="found_to" type="date" defaultValue={first(params.found_to)} className={FIELD} />
         </Field>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">

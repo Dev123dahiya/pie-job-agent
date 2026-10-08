@@ -1,4 +1,6 @@
-import { FileLock2 } from "lucide-react";
+import { Download, Eye, FileLock2 } from "lucide-react";
+import { LockedBadge, ResumeUses } from "@/components/resumes/ResumeUses";
+import { MASTER_FILE_URL, artifactUrl } from "@/lib/resume";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
@@ -42,6 +44,23 @@ export default async function ResumesPage() {
             <div className="truncate text-ink-3" title={master.data.sha256 ?? undefined}>
               SHA-256 {master.data.sha256?.slice(0, 16)}…
             </div>
+            <div className="flex flex-wrap gap-2 sm:col-span-2">
+              <a
+                href={MASTER_FILE_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-ink hover:bg-surface-2"
+              >
+                <Eye aria-hidden className="size-4" /> Preview
+              </a>
+              <a
+                href={MASTER_FILE_URL}
+                download={master.data.file_name ?? undefined}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-ink hover:bg-surface-2"
+              >
+                <Download aria-hidden className="size-4" /> Download
+              </a>
+            </div>
           </dl>
         ) : (
           <p className="text-sm text-ink-2">
@@ -59,14 +78,18 @@ export default async function ResumesPage() {
           </p>
         ) : (
           <div className="-mx-4 overflow-x-auto sm:mx-0">
-            <table className="w-full min-w-[560px] text-left text-sm">
+            <table className="w-full min-w-[760px] text-left text-sm">
               <thead className="text-xs text-ink-3">
                 <tr>
                   <th className="px-3 py-2 font-medium">Job</th>
                   <th className="px-3 py-2 font-medium">Version</th>
                   <th className="px-3 py-2 font-medium">Strategy</th>
                   <th className="px-3 py-2 font-medium">Validation</th>
+                  <th className="px-3 py-2 font-medium">Used by</th>
                   <th className="px-3 py-2 font-medium">Created</th>
+                  <th className="px-3 py-2 font-medium">
+                    <span className="sr-only">Download</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -78,7 +101,14 @@ export default async function ResumesPage() {
                       </Link>
                       <p className="text-xs text-ink-3">{v.company ?? "Unknown company"}</p>
                     </td>
-                    <td className="tabular px-3 py-2 text-ink">v{v.version_number}</td>
+                    <td className="tabular px-3 py-2 text-ink">
+                      v{v.version_number}
+                      {v.locked && (
+                        <div className="mt-1">
+                          <LockedBadge />
+                        </div>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-ink-2">{humanize(v.tailoring_strategy ?? "—")}</td>
                     <td className="px-3 py-2">
                       <StatusBadge
@@ -86,8 +116,19 @@ export default async function ResumesPage() {
                         label={v.validation_status === "VALIDATED" ? "Validated" : "Not validated"}
                       />
                     </td>
+                    <td className="px-3 py-2">
+                      <ResumeUses uses={v.used_by} />
+                    </td>
                     <td className="px-3 py-2 text-ink-3" suppressHydrationWarning>
                       {relativeTime(v.created_at)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <a
+                        href={artifactUrl(v.id, "pdf")}
+                        className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
+                      >
+                        <Download aria-hidden className="size-3.5" /> PDF
+                      </a>
                     </td>
                   </tr>
                 ))}

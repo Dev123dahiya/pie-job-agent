@@ -4,9 +4,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AutomationNotice } from "@/components/jobs/AutomationNotice";
-import { AnalyzeJobButton } from "@/components/jobs/JobActions";
+import { AnalyzeJobButton, ManualApplyButton, ShortlistJobButton, SkipJobButton } from "@/components/jobs/JobActions";
+import { APPLY_TYPE_LABEL, PLATFORM_LABEL, STATUS_LABEL } from "@/lib/home";
 import { ResumeReadinessCard } from "@/components/jobs/ResumeReadinessCard";
-import { ANALYZABLE_STATES } from "@/lib/jobs";
+import { ANALYZABLE_STATES, MANUAL_ELIGIBLE_STATES, SHORTLISTABLE_STATES, SKIPPABLE_STATES } from "@/lib/jobs";
 import { DIMENSIONS, LEVEL_STYLE } from "@/components/jobs/MatchDimensions";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -195,6 +196,7 @@ export default async function JobPage(props: PageProps<"/jobs/[id]">) {
           <p className="text-sm text-ink-3">{job.company ?? "Unknown company"}</p>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">{job.title}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-ink">{STATUS_LABEL[job.user_status]}</span>
             <StatusBadge status={job.status} />
             <StatusBadge status={job.freshness} label={FRESHNESS_LABEL[job.freshness]} />
             <a
@@ -206,12 +208,19 @@ export default async function JobPage(props: PageProps<"/jobs/[id]">) {
               View original posting <ExternalLink aria-hidden className="size-3.5" />
             </a>
           </div>
+          <p className="mt-2 text-xs text-ink-3">
+            {PLATFORM_LABEL[job.platform]} · {APPLY_TYPE_LABEL[job.apply_type]} · from {job.source}
+            {(job.also_on?.length ?? 0) > 0 && <> · also found on {job.also_on?.join(", ")} (duplicate, applied to once)</>}
+          </p>
           {job.last_error && <p className="mt-2 text-sm text-critical">{job.last_error}</p>}
         </div>
         <div className="flex flex-col items-start gap-2">
           {ANALYZABLE_STATES.has(job.status) && (
             <AnalyzeJobButton jobId={job.id} analyzed={latest !== null} />
           )}
+          {SHORTLISTABLE_STATES.has(job.status) && <ShortlistJobButton jobId={job.id} />}
+          {SKIPPABLE_STATES.has(job.status) && <SkipJobButton jobId={job.id} />}
+          {MANUAL_ELIGIBLE_STATES.has(job.status) && <ManualApplyButton jobId={job.id} />}
         </div>
       </div>
 

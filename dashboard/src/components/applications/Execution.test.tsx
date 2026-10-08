@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { availableModes, canSubmit, liveBlockReason, modeChips, modeView, screenshotUrl, sessionSteps } from "@/lib/execution";
+import { availableModes, canSubmit, failureText, liveBlockReason, modeChips, modeView, screenshotUrl, sessionSteps } from "@/lib/execution";
 import { isAllowedProxyPath } from "@/lib/proxy";
 import type { ApplicationDetail, BrowserSessionView, ExecutionModeStatus } from "@/lib/types";
 import { ExecutionBanner } from "./ExecutionBanner";
@@ -24,6 +24,7 @@ const app = (over: Partial<ApplicationDetail> = {}): ApplicationDetail => ({
   job_status: "READY_FOR_SUBMISSION", requires_user_input: false, applied_at: null,
   updated_at: "2026-09-28T10:00:00Z", latest_session: null, url: "u", application_url: null,
   user_action_required: null, readiness: { ready: true, eligible: true, user_blockers: [], pending_steps: [] },
+  user_status: "found", platform: "company_site", resume_locked: false, last_error: null, resume: null,
   external_live_enabled: false, development_mode: true, external_live_configured: false,
   live_block_reason: "DEVELOPMENT_MODE_BLOCKED", browser_headless: true, default_mode: "external_dry_run",
   confirmation_statement: "You are about to submit an application to Acme for Backend Engineer. This will perform an external action.",
@@ -119,5 +120,14 @@ describe("execution mode bar", () => {
 
   it("never hides the mode, even when the backend is offline", () => {
     expect(modeChips(null)[0].label).toMatch(/UNKNOWN/);
+  });
+});
+
+describe("failed runs", () => {
+  it("names the step that failed and says nothing was left running", () => {
+    const text = failureText({ failed: true, failed_stage: "fill_application_field", error: "renderer crashed" });
+    expect(text).toContain("Failed at fill application field: renderer crashed");
+    expect(text).toContain("screenshot was saved");
+    expect(failureText({ failed: true })).toContain("Failed at the browser run: unknown error");
   });
 });

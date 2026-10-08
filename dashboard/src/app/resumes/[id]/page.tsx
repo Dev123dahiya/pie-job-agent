@@ -5,8 +5,10 @@ import { notFound } from "next/navigation";
 import { ExperienceGapNotice } from "@/components/jobs/ExperienceGapNotice";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { getResumeVersion } from "@/lib/api";
+import { getAtsCheck, getResumeVersion } from "@/lib/api";
 import { humanize, relativeTime } from "@/lib/format";
+import { AtsCard } from "@/components/resumes/AtsCard";
+import { LockedBadge, ResumeUses } from "@/components/resumes/ResumeUses";
 import { artifactUrl, describeChanges } from "@/lib/resume";
 
 export const metadata: Metadata = { title: "Resume version" };
@@ -31,7 +33,7 @@ function List({ title, items, empty = "None" }: { title: string; items: string[]
 
 export default async function ResumeVersionPage(props: PageProps<"/resumes/[id]">) {
   const { id } = await props.params;
-  const res = await getResumeVersion(id);
+  const [res, ats] = await Promise.all([getResumeVersion(id), getAtsCheck(id)]);
   if (!res.ok) {
     if (res.error.includes("404") || res.error.includes("422")) notFound();
     return (
@@ -62,6 +64,7 @@ export default async function ResumeVersionPage(props: PageProps<"/resumes/[id]"
               status={v.validation_status === "VALIDATED" ? "ok" : "unknown"}
               label={v.validation_status === "VALIDATED" ? "Validated" : "Not validated"}
             />
+            {v.locked && <LockedBadge />}
             <span>{humanize(v.tailoring_strategy ?? "balanced")}</span>
             <span suppressHydrationWarning>· created {relativeTime(v.created_at)}</span>
             {v.job_id && (
@@ -74,6 +77,10 @@ export default async function ResumeVersionPage(props: PageProps<"/resumes/[id]"
             Derived from the master resume (SHA-256 {v.source_sha256?.slice(0, 12) ?? "—"}…) · {v.model ?? "unknown model"} ·{" "}
             {v.prompt_version ?? "—"}. Internal only. Nothing is submitted.
           </p>
+          <div className="mt-3">
+            <p className="mb-1 text-xs font-medium text-ink-2">Used by</p>
+            <ResumeUses uses={v.used_by} />
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           {v.artifacts.map((format) => (
@@ -102,6 +109,7 @@ export default async function ResumeVersionPage(props: PageProps<"/resumes/[id]"
         </div>
 
         <div className="flex flex-col gap-6">
+          {!v.is_master && <AtsCard ats={ats} />}
           {changes && (
             <Card title="Change summary" description="Facts preserved; only order and wording changed">
               <div className="flex flex-col gap-3">

@@ -1,5 +1,5 @@
-# Local infrastructure. Phase 1 only needs PostgreSQL; the backend and dashboard run
-# on the host (see README). Values come from .env.
+# OPTIONAL. PIE uses a SQLite file by default and needs no Docker. This PostgreSQL service is
+# only for DATABASE_URL=postgresql+psycopg://... (see README, "Using PostgreSQL").
 services:
   postgres:
     image: postgres:17-alpine

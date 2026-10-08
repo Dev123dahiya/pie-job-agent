@@ -13,13 +13,18 @@ dimensions:
   salary_match:     {reject: [weak]}    # "unknown" (no salary listed) is never a rejection
 
 # fresh | stale | unknown. Only FRESH qualifies: a job must have trustworthy evidence that it
-# was posted/released/created within the 48-hour window. No (trustworthy) post date = unknown
+# was posted/released/created within the freshness window (preferences.maximum_application_age_hours). No (trustworthy) post date = unknown
 # = rejected, exactly like stale.
 freshness:
   reject: [stale, unknown]
 
-# Optional thresholds; null disables them.
-min_match_score: null
+# Minimum Claude match score to shortlist (REQUIREMENTS 6, default 70). null disables it.
+min_match_score: 65
+
+# Minimum package (lakh rupees a year; the user's choice 2026-10-05: 10 LPA). Only a salary the
+# posting SHOWS can fail it; jobs without a shown salary are kept (most Indian postings).
+min_salary_lpa: 10
+# Optional; null disables it.
 max_missing_skills: null
 
 # Also require the analyzer's own should_shortlist recommendation to be true.

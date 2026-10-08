@@ -1,7 +1,9 @@
 """Fixed, read-only page scripts. These constants are the ONLY JavaScript PIE runs in a page;
 nothing from Claude, the user or a tool argument is ever evaluated.
 
-EXTRACT_FORM (argument: a field-id prefix for the frame) describes the page's form controls
+EXTRACT_FORM (argument: a field-id prefix for the frame, or {prefix, host} to read a form
+inside an element's open shadow root, or {prefix, root} to read only inside one element, e.g.
+LinkedIn's Easy Apply panel) describes the page's form controls
 and tags each with a ``data-pie-field`` attribute so PIE can address it later. It returns
 labels, names, ids, autocomplete, placeholder, required-ness, options, the currently selected
 option label of dropdowns and whether a value is present - never typed values themselves.
@@ -12,7 +14,12 @@ mentions "2FA" or "captcha" does not stop an application.
 """
 
 EXTRACT_FORM = r"""
-(prefix) => {
+(arg) => {
+  // arg: the field-id prefix, or {prefix, host}: read the form inside host's (open) shadow root.
+  const prefix = typeof arg === 'string' ? arg : arg.prefix;
+  // arg.root: read only inside this element (e.g. the Easy Apply panel), wherever it is.
+  const hostEl = typeof arg === 'string' || !arg.host ? null : document.querySelector(arg.host);
+  const doc = (typeof arg !== 'string' && arg.root) || (hostEl && hostEl.shadowRoot) || document;
   const clean = (t, n = 300) => (t || '').replace(/\s+/g, ' ').trim().slice(0, n);
   const visible = (el) => {
     if ((el.getAttribute('type') || '').toLowerCase() === 'file') return true;
@@ -20,11 +27,12 @@ EXTRACT_FORM = r"""
     const r = el.getBoundingClientRect();
     return s.display !== 'none' && s.visibility !== 'hidden' && (r.width > 0 || r.height > 0);
   };
-  const byId = (id) => (id ? document.getElementById(id) : null);
+  const byId = (id) => (!id ? null : doc.getElementById ? doc.getElementById(id)
+    : doc.querySelector(`#${CSS.escape(id)}`));
   const labelOf = (el) => {
     let t = '';
     if (el.id) {
-      const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      const l = doc.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       if (l) t = l.innerText;
     }
     if (!t) { const l = el.closest('label'); if (l) t = l.innerText; }
@@ -87,20 +95,29 @@ EXTRACT_FORM = r"""
     });
   };
 
-  for (const el of document.querySelectorAll('input, select, textarea')) {
+  for (const el of doc.querySelectorAll('input, select, textarea')) {
     const tag = el.tagName.toLowerCase();
     const type = tag === 'input' ? (el.getAttribute('type') || 'text').toLowerCase() : tag;
     if (['hidden', 'submit', 'button', 'reset', 'image'].includes(type)) continue;
-    if (el.disabled || !visible(el)) continue;
+    // Custom radios/checkboxes hide the real input and draw a stand-in (role=radio, or the
+    // label) over it (LinkedIn, 2026-10-05): the stand-in decides visibility and the option text.
+    const proxy = (type === 'radio' || type === 'checkbox')
+      ? (el.closest('[role=radio], [role=checkbox], label') || el) : el;
+    if (el.disabled || !visible(proxy)) continue;
     uiText.push(localText(el));
     const grouped = (type === 'radio' || type === 'checkbox') && el.name &&
-      document.querySelectorAll(`input[name="${CSS.escape(el.name)}"]`).length > 1;
+      doc.querySelectorAll(`input[name="${CSS.escape(el.name)}"]`).length > 1;
     if (grouped) {
       let g = groups[el.name];
       if (!g) {
         const c = container(el);
         const legend = c?.querySelector('legend');
-        const question = clean(legend?.innerText || c?.getAttribute('aria-label') ||
+        // No legend: the question is often the short text just before the group.
+        const prev = c?.previousElementSibling;
+        const before = prev && !prev.querySelector('input, select, textarea') &&
+          (prev.innerText || '').trim().length <= 300 ? prev.innerText : '';
+        const question = clean(legend?.innerText || before || c?.getAttribute('aria-label') ||
+          (proxy !== el ? proxy.getAttribute('aria-label') : '') ||
           (c?.innerText || '').split('\n')[0]);
         g = groups[el.name] = {
           id: `${prefix}${n++}`, kind: type === 'radio' ? 'radio' : 'checkbox_group',
@@ -112,9 +129,10 @@ EXTRACT_FORM = r"""
       }
       el.setAttribute('data-pie-field', g.id);
       el.setAttribute('data-pie-option', String(g.options.length));
-      g.options.push({ label: labelOf(el), value: el.value });
+      const optionText = labelOf(el) || (proxy !== el ? clean(proxy.innerText) : '');
+      g.options.push({ label: optionText, value: el.value });
       g.required = g.required || isRequired(el, g.label);
-      if (el.checked) { g.has_value = true; g.selected_label = labelOf(el); }
+      if (el.checked) { g.has_value = true; g.selected_label = optionText; }
       continue;
     }
     const id = `${prefix}${n++}`;
@@ -146,7 +164,7 @@ EXTRACT_FORM = r"""
     fields.push(field);
   }
   // Custom dropdowns that are not inputs (buttons/divs opening a listbox).
-  for (const el of document.querySelectorAll('[role=combobox]:not(input), [aria-haspopup="listbox"]:not(input):not(select)')) {
+  for (const el of doc.querySelectorAll('[role=combobox]:not(input), [aria-haspopup="listbox"]:not(input):not(select)')) {
     if (el.closest('[data-pie-field]') || el.querySelector('[data-pie-field]') || !visible(el)) continue;
     const id = `${prefix}${n++}`;
     el.setAttribute('data-pie-field', id);
@@ -157,7 +175,7 @@ EXTRACT_FORM = r"""
   const buttons = [];
   let b = 0;
   const THIRD_PARTY = /linkedin|indeed|google|facebook|apple|github|seek/i;
-  for (const el of document.querySelectorAll('button, input[type=submit], [role=button]')) {
+  for (const el of doc.querySelectorAll('button, input[type=submit], [role=button]')) {
     if (el.disabled || !visible(el)) continue;
     const text = clean(el.innerText || el.value || el.getAttribute('aria-label'));
     uiText.push(text);
@@ -170,18 +188,18 @@ EXTRACT_FORM = r"""
   }
   const applyLinks = [];
   let a = 0;
-  for (const el of document.querySelectorAll('a, button')) {
+  for (const el of doc.querySelectorAll('a, button')) {
     const text = clean(el.innerText, 60);
     if (!/^apply( now| for this (job|position|role))?$/i.test(text) || !visible(el)) continue;
     const id = `${prefix}a${a++}`;
     el.setAttribute('data-pie-apply', id);
     applyLinks.push({ id, label: text });
   }
-  for (const d of document.querySelectorAll('[role=dialog], [aria-modal="true"]')) {
+  for (const d of doc.querySelectorAll('[role=dialog], [aria-modal="true"]')) {
     if (visible(d)) uiText.push(clean(d.innerText, 600));
   }
 
-  const q = (s) => document.querySelectorAll(s).length;
+  const q = (s) => doc.querySelectorAll(s).length;
   const body = document.body ? document.body.innerText : '';
   return {
     fields,
@@ -210,5 +228,22 @@ COMBOBOX_VALUE = r"""
   const root = el.closest('[class*="select__control"], [class*="-control"], [data-combobox-root], [class*="select-shell"]') || el.parentElement?.parentElement || el.parentElement;
   const v = root ? root.querySelector('[class*="single-value"], [class*="singleValue"], [data-value-label]') : null;
   return v ? clean(v.getAttribute('data-value-label') || v.innerText) : '';
+}
+"""
+
+# From the "Apply to ..." heading, the nearest enclosing element that also holds a step button
+# (Next / Review / Submit application): the Easy Apply panel. Crosses shadow-root boundaries.
+FIND_PANEL = r"""
+(heading) => {
+  const STEP = /^(next|review|submit application)$/i;
+  const ARIA = /continue to next step|review your application|submit application/i;
+  const hasStep = (el) => [...el.querySelectorAll('button')].some((b) =>
+    STEP.test((b.innerText || '').trim()) || ARIA.test(b.getAttribute('aria-label') || ''));
+  let el = heading;
+  for (let i = 0; i < 15 && el; i++) {
+    el = el.parentElement || (el.getRootNode() && el.getRootNode().host) || null;
+    if (el && hasStep(el)) return el;
+  }
+  return heading.parentElement;
 }
 """

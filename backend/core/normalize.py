@@ -367,3 +367,25 @@ def city_key(location: str | None) -> str | None:
     text = f" {' '.join(_tokens(location or ''))} "
     found = {city for name, city in _CITY_ALIASES.items() if f" {name} " in text}
     return found.pop() if len(found) == 1 else None
+
+
+_INR_LAKH = re.compile(
+    r"(?i)(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)\s*(?:(?:-|–|to)\s*(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)\s*)?"
+    r"(?:lacs?|lakhs?)\s*(?:p\.?\s*a\.?|per\s+annum|/\s*(?:yr|year|annum))"
+    r"|(?i:(\d+(?:\.\d+)?)\s*(?:(?:-|–|to)\s*(\d+(?:\.\d+)?)\s*)?lpa\b)"
+)
+
+
+def parse_inr_lakh_range(text: str | None) -> tuple[float, float] | None:
+    """(min, max) ANNUAL rupees from Indian job-site wording that states the period:
+    '4-8 Lacs P.A.', '12 Lakhs PA', '10-15 LPA'. Anything else (monthly, 'Not disclosed',
+    no period) is None: a salary is never guessed."""
+    m = _INR_LAKH.search(text or "")
+    if not m:
+        return None
+    low_s, high_s = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+    low = float(low_s) * 100_000
+    high = float(high_s) * 100_000 if high_s else low
+    if high < low or high <= 0:
+        return None
+    return low, high

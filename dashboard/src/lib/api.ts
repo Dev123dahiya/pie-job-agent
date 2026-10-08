@@ -1,3 +1,10 @@
+import { type LogPage, logsQueryString } from "./logs";
+import type { ManualJob } from "@/components/manual/ManualList";
+import type { AtsReport } from "@/components/resumes/AtsCard";
+import type { FailedList } from "./failed";
+import type { NeedsInput } from "./needsInput";
+import type { CurrentSettings } from "./settings";
+import type { PipelineRunDetail, ReviewItem, RunOptions, RunSummary } from "./runs";
 import type {
   AgentStatus,
   DailySchedule,
@@ -6,6 +13,8 @@ import type {
   ApplicationSummary,
   ExecutionModeStatus,
   DashboardOverview,
+  DailyLimit,
+  HomeStatus,
   Fetched,
   Health,
   JobDetail,
@@ -24,10 +33,10 @@ export function apiBaseUrl(): string {
   return (process.env.PIE_API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 }
 
-async function getJson<T>(path: string, fetchImpl: typeof fetch = fetch): Promise<T> {
+async function getJson<T>(path: string, fetchImpl: typeof fetch = fetch, timeoutMs = 2500): Promise<T> {
   const res = await fetchImpl(`${apiBaseUrl()}${path}`, {
     cache: "no-store",
-    signal: AbortSignal.timeout(2500),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`${path} responded ${res.status}`);
   return (await res.json()) as T;
@@ -47,9 +56,9 @@ export async function getHealth(fetchImpl?: typeof fetch): Promise<Health | null
   }
 }
 
-async function fetched<T>(path: string, fetchImpl?: typeof fetch): Promise<Fetched<T>> {
+async function fetched<T>(path: string, fetchImpl?: typeof fetch, timeoutMs?: number): Promise<Fetched<T>> {
   try {
-    return { ok: true, data: await getJson<T>(path, fetchImpl) };
+    return { ok: true, data: await getJson<T>(path, fetchImpl, timeoutMs) };
   } catch (err) {
     const offline = err instanceof TypeError || (err instanceof Error && err.name === "TimeoutError");
     return { ok: false, error: offline ? "The backend is not reachable." : String((err as Error).message) };
@@ -60,6 +69,8 @@ async function fetched<T>(path: string, fetchImpl?: typeof fetch): Promise<Fetch
 export const JOB_QUERY_KEYS = [
   "q", "location", "source", "freshness", "shortlisted", "min_salary",
   "salary_known_only", "sort", "limit", "offset",
+  "status_group", "platform", "apply_type", "company", "min_score", "max_score",
+  "found_from", "found_to",
 ] as const;
 
 export function jobsQueryString(params: Record<string, string | string[] | undefined>): string {
@@ -130,8 +141,20 @@ export function getMasterResumeStatus(fetchImpl?: typeof fetch) {
   return fetched<MasterResumeStatus>("/api/resumes/master", fetchImpl);
 }
 
-export function getApplications(fetchImpl?: typeof fetch) {
-  return fetched<ApplicationSummary[]>("/api/applications", fetchImpl);
+export const APPLICATION_QUERY_KEYS = ["platform", "status_group", "updated_from", "updated_to"] as const;
+
+export function getApplications(
+  params: Record<string, string | string[] | undefined> = {},
+  fetchImpl?: typeof fetch,
+) {
+  const qs = new URLSearchParams();
+  for (const key of APPLICATION_QUERY_KEYS) {
+    const value = params[key];
+    const first = Array.isArray(value) ? value[0] : value;
+    if (first) qs.set(key, first);
+  }
+  const s = qs.toString();
+  return fetched<ApplicationSummary[]>(`/api/applications${s ? `?${s}` : ""}`, fetchImpl);
 }
 
 export function getApplication(id: string, fetchImpl?: typeof fetch) {
@@ -150,4 +173,62 @@ export function getDailyRun(fetchImpl?: typeof fetch) {
 /** Lead -> trusted ATS resolution state: leads, boards, negative cache, budgets. */
 export function getLeadSummary(fetchImpl?: typeof fetch) {
   return fetched<LeadSummary>("/api/leads/summary", fetchImpl);
+}
+
+/** Home page: platform modes, live switch, six-status counts and quick links. */
+export function getHome(fetchImpl?: typeof fetch) {
+  return fetched<HomeStatus>("/api/dashboard/home", fetchImpl);
+}
+
+/** Today's live submissions against the daily limits (enforced in the backend). */
+export function getDailyLimits(fetchImpl?: typeof fetch) {
+  return fetched<DailyLimit[]>("/api/dashboard/limits", fetchImpl);
+}
+
+/** The backend log, filtered and redacted by the backend (newest first). */
+export function getLogs(params: Record<string, string | string[] | undefined>, fetchImpl?: typeof fetch) {
+  return fetched<LogPage>(`/api/logs${logsQueryString(params)}`, fetchImpl, 15_000); // reads the whole log
+}
+
+/** Jobs waiting for the user (with their questions) and the user's saved answers. */
+export function getNeedsInput(fetchImpl?: typeof fetch) {
+  return fetched<NeedsInput>("/api/needs-input", fetchImpl);
+}
+
+/** Failed jobs with error, stage and screenshot. Retried only by the user. */
+export function getFailedJobs(fetchImpl?: typeof fetch) {
+  return fetched<FailedList>("/api/jobs/failed", fetchImpl);
+}
+
+/** Jobs the user applies to themselves. */
+export function getManualJobs(fetchImpl?: typeof fetch) {
+  return fetched<{ items: ManualJob[]; total: number }>("/api/jobs/manual", fetchImpl);
+}
+
+/** What a run can do now (steps, platforms, modes, live confirmations). */
+export function getRunOptions(fetchImpl?: typeof fetch) {
+  return fetched<RunOptions>("/api/runs/options", fetchImpl);
+}
+
+export function getRuns(fetchImpl?: typeof fetch) {
+  return fetched<{ items: RunSummary[] }>("/api/runs", fetchImpl);
+}
+
+export function getPipelineRun(id: string, fetchImpl?: typeof fetch) {
+  return fetched<PipelineRunDetail>(`/api/runs/${encodeURIComponent(id)}`, fetchImpl);
+}
+
+/** LIVE applications prepared and waiting for the user's yes/no. */
+export function getReviewQueue(fetchImpl?: typeof fetch) {
+  return fetched<{ items: ReviewItem[]; total: number }>("/api/review", fetchImpl);
+}
+
+/** Current settings (search, limits, minimum score, standard answers). */
+export function getSettings(fetchImpl?: typeof fetch) {
+  return fetched<CurrentSettings>("/api/settings", fetchImpl);
+}
+
+/** Local ATS check of a tailored resume (409 for versions without a PDF). */
+export function getAtsCheck(versionId: string, fetchImpl?: typeof fetch) {
+  return fetched<AtsReport>(`/api/resumes/versions/${encodeURIComponent(versionId)}/ats`, fetchImpl, 10_000);
 }

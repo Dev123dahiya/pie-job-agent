@@ -259,3 +259,110 @@ def test_resume_upload_needs_a_validated_pdf(bank: AnswerBank) -> None:
     assert plan_field(field("Resume", "file"), bank, None, True).action == "upload_resume"
     missing = plan_field(field("Resume", "file"), bank, None, False)
     assert missing.action == "block" and missing.category == UNKNOWN
+
+
+# --- B6: whole-word matching, so ordinary words are not mistaken for questions ------------
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        # "visa" as a word is a sponsorship question; inside "advisable" it is not.
+        ("Will you require visa sponsorship?", "sponsorship"),
+        ("Do you need a visa to work here?", "sponsorship"),
+        ("Visas currently held", "sponsorship"),
+        ("Would you require sponsorship?", "sponsorship"),
+        ("Is it advisable for you to relocate?", "willing_to_relocate"),
+        # A phone field vs a question about mobile apps (which must never get the number).
+        ("Mobile", "phone"),
+        ("Mobile No.", "phone"),
+        ("Mobile number", "phone"),
+        ("Cell phone", "phone"),
+        ("Do you have mobile app development experience?", None),
+        ("Years of mobile development", None),
+        ("Mobile platform you know best", None),
+        # "caste" as a word is sensitive; inside "broadcaster" it is not.
+        ("Caste", "sensitive_demographic"),
+        ("Experience as a broadcaster?", None),
+    ],
+)
+def test_keywords_match_whole_words_only(label: str, expected: str | None) -> None:
+    assert classify(field(label), "Gurugram, India")[0] == expected
+
+
+# --- B10: current CTC and total experience have their own answers --------------------------
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("Current CTC", "current_ctc"),
+        ("Current annual salary", "current_ctc"),
+        ("Expected CTC", "expected_salary"),
+        ("Total experience", "total_experience"),
+        ("Total Experience (in years)", "total_experience"),
+        ("Overall work experience", "total_experience"),
+        ("Years of experience", "total_experience"),
+        ("Experience", "total_experience"),
+        # Skill-specific experience is not total experience.
+        ("Years of experience with Python", None),
+        ("Total experience in Java", None),
+        ("Total experience as a team lead", None),
+    ],
+)
+def test_ctc_and_experience_questions(label: str, expected: str | None) -> None:
+    assert classify(field(label), "Gurugram, India")[0] == expected
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("Phone country code", "phone_country_code"),
+        ("Country code", "phone_country_code"),
+        ("Mobile phone number", "phone"),
+        ("Phone", "phone"),
+    ],
+)
+def test_phone_country_code_never_gets_the_phone_number(label: str, expected: str) -> None:
+    assert classify(field(label), "Gurugram, India")[0] == expected
+
+
+def test_a_sensitive_answer_is_reused_only_for_its_exact_question(real_like: UserProfile) -> None:
+    convicted = "Have you ever been convicted of a criminal offence?"
+    row = ApplicationAnswer(
+        application_id=None,
+        question_key=question_key(convicted),
+        question=convicted,
+        answer="No",
+        status=AnswerStatus.VERIFIED,
+        source="answered by the user in the dashboard on 2026-10-04",
+    )
+    bank = AnswerBank(real_like, [row])
+    plan = plan_field(yes_no(convicted), bank, None, True)
+    assert plan.category == VERIFIED_AUTOFILL and plan.key == question_key(convicted)
+    # Same kind of question, different question: never answered with that "No".
+    other = plan_field(yes_no("Do you consent to a background check?"), bank, None, True)
+    assert other.category == SENSITIVE and other.action != "fill"
+    passport = plan_field(yes_no("Are you a citizen of the United States?"), bank, None, True)
+    assert passport.category == SENSITIVE and passport.action != "fill"
+
+
+def test_the_users_answer_for_one_dropdown_wins_over_the_general_answer(
+    real_like: UserProfile,
+) -> None:
+    label = "What is your notice period?"
+    q = field(
+        label, "select", options=[{"label": "Select"}, {"label": "0-15 days"}, {"label": "30 days"}]
+    )
+    general = plan_field(q, AnswerBank(real_like), None, True)
+    assert general.action == "block" and general.key == question_key(label)  # saved per question
+    row = ApplicationAnswer(
+        application_id=None,
+        question_key=question_key(label),
+        question=label,
+        answer="0-15 days",
+        status=AnswerStatus.VERIFIED,
+        source="answered by the user in the dashboard on 2026-10-04",
+    )
+    plan = plan_field(q, AnswerBank(real_like, [row]), None, True)
+    assert plan.action == "fill" and plan.option == 1

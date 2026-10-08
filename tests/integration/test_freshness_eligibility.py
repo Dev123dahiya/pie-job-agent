@@ -51,7 +51,7 @@ def output(freshness: str) -> JobAnalysisOutput:
             "missing_skills": [],
             "important_requirements": [],
             "concerns": [],
-            "match_score": 70,
+            "match_score": 85,
             "should_shortlist": True,
             "reason": "ok",
         }
@@ -94,10 +94,14 @@ def test_48_hour_boundary_is_unchanged(age: timedelta, expected: Freshness) -> N
     assert compute_freshness(None, NOW, 48) is Freshness.UNKNOWN
 
 
-def test_window_is_still_48_hours() -> None:
+def test_default_window_is_48_hours() -> None:
+    """The shipped default (the user's own profile may set another window; tests never read
+    the user's real profile)."""
+    from backend.core.config import REPO_ROOT
     from backend.core.profile import load_user_profile
 
-    assert load_user_profile().preferences.maximum_application_age_hours == 48
+    example = load_user_profile(REPO_ROOT / "config" / "user_profile.example.yaml")
+    assert example.preferences.maximum_application_age_hours == 48
 
 
 # 7: every other rule is unchanged --------------------------------------------------------
@@ -112,7 +116,7 @@ def test_other_rules_are_unchanged(rules: ShortlistRules) -> None:
         "skills_match": [],
         "salary_match": ["weak"],  # unknown salary is still not a rejection
     }
-    assert rules.min_match_score is None and rules.max_missing_skills is None
+    assert rules.min_match_score == 65 and rules.max_missing_skills is None  # user, 2026-10-04
     assert rules.require_analyzer_recommendation is True
     assert rules.analyze_stale_jobs_in_batch is False
     ok, _ = evaluate(output("fresh"), rules)  # unknown salary + fresh: still eligible

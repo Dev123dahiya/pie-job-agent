@@ -73,7 +73,7 @@ In `ANALYZER_BACKEND=heuristic` (test) mode the agent refuses to run rather than
 | Tool | Permission | What it really does |
 |---|---|---|
 | `get_user_profile` | READ_ONLY | Verified facts, unconfirmed skills (flagged) and preferences; no contact details |
-| `get_application_answers` | READ_ONLY | Verified answers and contact details, plus the list of common questions with no verified answer |
+| `get_application_answers` | READ_ONLY | Which answers exist (answer keys, VERIFIED or UNCONFIRMED, and their source; never the values), plus the common questions with no verified answer. Keys are the ones `fill_application_field` accepts |
 | `search_jobs` | READ_ONLY | Queries PIE's stored jobs (no web browsing or discovery) |
 | `get_job` | READ_ONLY | Posting facts, the latest analysis with failed rules, and any draft |
 | `get_shortlisted_jobs` | READ_ONLY | Jobs in `SHORTLISTED` |

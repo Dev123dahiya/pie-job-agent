@@ -7,6 +7,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from backend.services.freshness import compute_freshness
+from backend.services.platforms import apply_type_of, platform_of
+from backend.services.statuses import user_status
 from database.enums import Freshness
 from database.models import (
     AgentAction,
@@ -80,7 +82,10 @@ class JobSummary(BaseModel):
     posted_at: datetime | None
     discovered_at: datetime
     freshness: Freshness
-    status: str
+    status: str  # PIE's detailed pipeline state
+    user_status: str  # one of the six: found / skipped / applied / needs_input / manual / failed
+    platform: str  # naukri | linkedin | company_site
+    apply_type: str  # company_form | naukri_direct | linkedin_easy_apply | external_link
     url: str
     times_seen: int
     last_error: str | None
@@ -110,7 +115,7 @@ class JobSummary(BaseModel):
             experience_required=job.experience_required,
             posted_at=job.posted_at,
             discovered_at=job.discovered_at,
-            freshness=compute_freshness(job.posted_at, now, max_age_hours),
+            freshness=compute_freshness(job.posted_at, now, max_age_hours, job.source),
             posted_at_kind=job.posted_at_kind,
             also_on=sorted(
                 {a.get("source", "") for a in job.source_attributions or []} - {job.source, ""}
@@ -118,6 +123,9 @@ class JobSummary(BaseModel):
             salary_period=job.salary_period,
             salary_note=_salary_note(job),
             status=job.pipeline_state.value,
+            user_status=user_status(job.pipeline_state),
+            platform=platform_of(job),
+            apply_type=apply_type_of(job),
             url=job.url,
             times_seen=job.times_seen,
             last_error=job.last_error,
@@ -153,6 +161,15 @@ class ApplicationBrief(BaseModel):
     applied_at: datetime | None
 
 
+class ResumeUse(BaseModel):
+    application_id: uuid.UUID
+    job_id: uuid.UUID
+    title: str
+    company: str | None
+    user_status: str
+    locked: bool
+
+
 class ResumeVersionBrief(BaseModel):
     id: uuid.UUID
     version_number: int
@@ -165,6 +182,10 @@ class ResumeVersionBrief(BaseModel):
     role: str | None
     created_at: datetime
     changes_summary: str | None
+    # Filled in by the resumes routes: the applications using this version, and whether any
+    # of them locks it (in progress or submitted, REQUIREMENTS 7).
+    used_by: list["ResumeUse"] = []
+    locked: bool = False
 
     @classmethod
     def of(cls, v: ResumeVersion) -> "ResumeVersionBrief":

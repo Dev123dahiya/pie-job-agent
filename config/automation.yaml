@@ -1,0 +1,18 @@
+# Automation settings (REQUIREMENTS 10). Safe to commit: no personal data.
+#
+# Daily limits: live submissions per day (your timezone, TIMEZONE in .env), enforced by the
+# backend. A pending or unconfirmed submission counts too. Dry runs never count.
+# The LinkedIn limit must stay lower than the Naukri limit.
+daily_limits:
+  total: 40
+  naukri: 15
+  linkedin: 5
+  company_site: 10
+  instahyre: 5
+
+# Claude model per task (REQUIREMENTS 6): a cheaper model scores many jobs; the strongest one
+# tailors resumes and answers application questions. Used by the Claude Code CLI and the API.
+models:
+  scoring: claude-sonnet-5-5
+  tailoring: claude-opus-5-5
+  answers: claude-opus-5-5

@@ -205,3 +205,9 @@ def test_defaults() -> None:
     settings = Settings()
     assert settings.daily_run_time == "07:00" and settings.daily_run_analysis_limit == 50
     assert settings.development_mode is True and settings.external_live_enabled is False
+
+
+def test_tests_never_read_the_real_env_file() -> None:
+    from backend.core.config import Settings
+
+    assert Settings.model_config.get("env_file") is None

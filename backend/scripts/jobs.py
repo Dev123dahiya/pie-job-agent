@@ -8,6 +8,7 @@ python -m backend.scripts.jobs runs                     # recent runs
 
 import argparse
 import sys
+import uuid
 
 from sqlalchemy import select
 
@@ -24,6 +25,7 @@ from backend.services.analysis import (
     select_jobs_for_batch,
 )
 from backend.services.discovery import DiscoveryService, create_discovery_run
+from backend.services.failed_jobs import RetryError, list_failed_jobs, retry_failed_job
 from backend.services.runs import RunConflictError
 from backend.services.shortlist import load_shortlist_rules
 from database.base import utcnow
@@ -142,6 +144,39 @@ def cmd_runs(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_failed(args: argparse.Namespace) -> int:
+    with get_session_factory()() as db:
+        failed = list_failed_jobs(db, limit=args.limit)
+    if not failed:
+        print("No failed jobs.")
+        return 0
+    for f in failed:
+        when = f"{f.failed_at:%Y-%m-%d %H:%M}" if f.failed_at else "unknown time"
+        retried = f", retried {f.retries}x" if f.retries else ""
+        print(f"{f.job_id}  {f.title} @ {f.company or '?'}  ({when}{retried})")
+        print(f"    failed at: {f.stage or 'unknown step'}: {f.error or 'no error recorded'}")
+        if f.screenshot:
+            print(f"    screenshot: {get_settings().application_artifacts_dir / f.screenshot}")
+    print()
+    print(f"{len(failed)} failed job(s). Retry one: python -m backend.scripts.jobs retry <job_id>")
+    return 0
+
+
+def cmd_retry(args: argparse.Namespace) -> int:
+    settings = get_settings()
+    with get_session_factory()() as db:
+        try:
+            job = retry_failed_job(db, settings, load_user_profile(), args.job_id)
+        except RetryError as exc:
+            print(f"Not retried: {exc}")
+            return 1
+        print(
+            f"{job.title}: back in the queue as {job.pipeline_state.value}. "
+            "Nothing was opened or submitted; run it again when you are ready."
+        )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Windows consoles default to cp1252; results contain characters like the rupee sign.
     if hasattr(sys.stdout, "reconfigure"):
@@ -168,6 +203,12 @@ def main(argv: list[str] | None = None) -> int:
         help="after a successful re-analysis, delete analyses made with an older profile",
     )
     a.set_defaults(func=cmd_analyze)
+    f = sub.add_parser("failed", help="list jobs whose application failed (retry is manual)")
+    f.add_argument("--limit", type=int, default=50)
+    f.set_defaults(func=cmd_failed)
+    t = sub.add_parser("retry", help="put ONE failed job back in the queue (does not run it)")
+    t.add_argument("job_id", type=uuid.UUID)
+    t.set_defaults(func=cmd_retry)
     r = sub.add_parser("runs", help="list recent runs")
     r.add_argument("--limit", type=int, default=10)
     r.set_defaults(func=cmd_runs)

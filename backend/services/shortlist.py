@@ -49,6 +49,9 @@ class ShortlistRules(BaseModel):
     max_missing_skills: int | None = Field(default=None, ge=0)
     require_analyzer_recommendation: bool = True
     analyze_stale_jobs_in_batch: bool = False
+    # Minimum package in lakh rupees a year. Only a salary the posting SHOWS can fail it; a job
+    # without a shown salary is never rejected for it (most Indian postings show none).
+    min_salary_lpa: float | None = Field(default=None, ge=0, le=500)
 
 
 def load_shortlist_rules(path: Path) -> ShortlistRules:
@@ -56,6 +59,44 @@ def load_shortlist_rules(path: Path) -> ShortlistRules:
         return ShortlistRules()
     with path.open(encoding="utf-8") as fh:
         return ShortlistRules.model_validate(yaml.safe_load(fh) or {})
+
+
+# The final match score (user's choice 2026-10-04) is the average of Claude's overall score and
+# a fixed-weight score from the five dimensions, so every score can be explained.
+DIMENSION_WEIGHTS = {
+    "role_match": 30,
+    "experience_match": 25,
+    "skills_match": 25,
+    "location_match": 15,
+    "salary_match": 5,
+}
+LEVEL_VALUE = {"strong": 1.0, "medium": 0.6, "unknown": 0.5, "weak": 0.0}
+
+
+def salary_rule(min_lpa: float, salary_max: float | None, currency: str | None) -> dict[str, Any]:
+    """The minimum-package rule: only a shown INR salary below the minimum fails it."""
+    if salary_max is None or (currency or "INR").upper() != "INR":
+        return _result("min_salary_lpa", True, f"salary not shown (minimum {min_lpa:g} LPA)")
+    shown = float(salary_max) / 100_000
+    ok = shown >= min_lpa
+    return _result("min_salary_lpa", ok, f"shows up to {shown:g} LPA vs minimum {min_lpa:g} LPA")
+
+
+def dimension_score(levels: dict[str, str]) -> int:
+    """0-100 from the five dimensions with fixed weights (strong 1, medium 0.6, unknown 0.5,
+    weak 0)."""
+    total = sum(w * LEVEL_VALUE.get(str(levels.get(d)), 0.5) for d, w in DIMENSION_WEIGHTS.items())
+    return round(100 * total / sum(DIMENSION_WEIGHTS.values()))
+
+
+def combined_score(claude_score: int, levels: dict[str, str]) -> tuple[int, int]:
+    """(final score, dimension score): the average of Claude's score and the dimension score."""
+    dims = dimension_score(levels)
+    return round((claude_score + dims) / 2), dims
+
+
+def _levels(output: Any) -> dict[str, str]:
+    return {d: str(getattr(output, d)) for d in DIMENSION_WEIGHTS}
 
 
 def _result(rule: str, passed: bool, detail: str) -> dict[str, Any]:
@@ -76,9 +117,17 @@ def exclusion_check(company: str | None, title: str, prefs: JobPreferences) -> s
     return None
 
 
-def evaluate(output: JobAnalysisOutput, rules: ShortlistRules) -> tuple[bool, list[dict[str, Any]]]:
-    """Apply every rule; the job is shortlisted only if all pass. Returns (decision, results)."""
+def evaluate(
+    output: JobAnalysisOutput,
+    rules: ShortlistRules,
+    salary_max: float | None = None,
+    salary_currency: str | None = None,
+) -> tuple[bool, list[dict[str, Any]]]:
+    """Apply every rule; the job is shortlisted only if all pass. Returns (decision, results).
+    ``salary_max`` is the posting's own top annual salary, when it shows one."""
     results: list[dict[str, Any]] = []
+    if rules.min_salary_lpa is not None:
+        results.append(salary_rule(rules.min_salary_lpa, salary_max, salary_currency))
     for dimension, rule in rules.dimensions.items():
         level = getattr(output, dimension)
         passed = level not in rule.reject
@@ -93,12 +142,21 @@ def evaluate(output: JobAnalysisOutput, rules: ShortlistRules) -> tuple[bool, li
         _result("freshness", passed, output.freshness + ("" if passed else " (rejected)"))
     )
 
+    final, dims = combined_score(output.match_score, _levels(output))
     if rules.min_match_score is not None:
-        ok = output.match_score >= rules.min_match_score
+        ok = final >= rules.min_match_score
         results.append(
-            _result(
-                "min_match_score", ok, f"{output.match_score} vs minimum {rules.min_match_score}"
-            )
+            {
+                **_result(
+                    "min_match_score",
+                    ok,
+                    f"{final} (Claude {output.match_score}, dimensions {dims}) "
+                    f"vs minimum {rules.min_match_score}",
+                ),
+                "claude_score": output.match_score,
+                "dimension_score": dims,
+                "final_score": final,
+            }
         )
     if rules.max_missing_skills is not None:
         n = len(output.missing_skills)

@@ -25,7 +25,9 @@ class Settings(BaseSettings):
     # When true: never submit real applications; use mock jobs/forms/emails.
     development_mode: bool = True
 
-    database_url: str = "postgresql+psycopg://pie:pie@localhost:5432/pie_job_agent"
+    # SQLite file under data/ (git-ignored). PostgreSQL also works: set DATABASE_URL, e.g.
+    # postgresql+psycopg://pie:pie@localhost:5432/pie_job_agent (pip install -e ".[postgres]").
+    database_url: str = f"sqlite+pysqlite:///{(REPO_ROOT / 'data' / 'pie.db').as_posix()}"
     database_echo: bool = False
 
     cors_origins: list[str] = Field(
@@ -45,6 +47,8 @@ class Settings(BaseSettings):
 
     job_sources_path: Path = REPO_ROOT / "config" / "job_sources.yaml"
     shortlist_rules_path: Path = REPO_ROOT / "config" / "shortlist_rules.yaml"
+    # Daily application limits (total + per platform); see backend/services/limits.py.
+    automation_path: Path = REPO_ROOT / "config" / "automation.yaml"
     # Identifies this tool honestly to job-board APIs.
     http_user_agent: str = "PIE-Job-Agent/0.1 (personal job search; low volume)"
 
@@ -67,6 +71,7 @@ class Settings(BaseSettings):
     # effect with DEVELOPMENT_MODE=false (see live_execution_block) and every submission also
     # needs the user's explicit per-application confirmation and a visible browser.
     external_live_enabled: bool = False
+    # The browser of every PIE session (login script included): "chrome", "msedge", or
     # auto -> Playwright's bundled Chromium, else installed Microsoft Edge, else Google Chrome.
     browser_channel: str = "auto"
     # Must be false for any session that may need you (CAPTCHA, OTP, login...) and for LIVE.
@@ -81,11 +86,15 @@ class Settings(BaseSettings):
     # --- Daily discovery + analysis (Phase 5.5) ---
     # Runs inside the API process (uvicorn backend.main:app) once a day at DAILY_RUN_TIME in
     # TIMEZONE; if the machine was off at that time, it runs on the next start that day.
-    # Discovery and analysis only: it never creates or submits applications.
+    # Discovery and analysis; it applies only when DAILY_AUTO_APPLY is on (below).
     daily_run_enabled: bool = True
     daily_run_time: str = "07:00"  # 24h HH:MM
     # Most fresh jobs one daily run sends to Claude (each analysis is one Claude call).
     daily_run_analysis_limit: int = 50
+    # After the daily run: AUTO-apply on every platform where auto mode is unlocked (live
+    # switches, limits and pauses as in any auto run). This is the user's standing
+    # confirmation in place of the typed phrase. Off unless the user turns it on.
+    daily_auto_apply: bool = False
 
     # Adzuna Jobs API (optional job source): your own free key from developer.adzuna.com.
     adzuna_app_id: str | None = None

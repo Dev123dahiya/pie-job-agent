@@ -11,10 +11,12 @@ READY_TO_APPLY requires neither. Nothing here submits anything.
 from dataclasses import dataclass, field
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.core.config import Settings
 from backend.core.profile import UserProfile
+from backend.services.platforms import PLATFORM_SOURCES
 from backend.services.resumes import locate_master_resume
 from database.enums import EventSource, JobPipelineState, ResumeValidationStatus
 from database.models import Application, ApplicationEvent, Job, ResumeVersion
@@ -27,7 +29,9 @@ ELIGIBLE = {S.SHORTLISTED, S.READY_TO_APPLY, S.BLOCKED_NEEDS_USER}
 STANDARD_QUESTIONS: dict[str, str] = {
     "work_authorization": "Are you legally authorized to work in India (and where needed, abroad)?",
     "notice_period": "What is your notice period?",
+    "current_ctc": "What is your current CTC (annual)?",
     "expected_salary": "What is your expected salary?",
+    "total_experience": "How many years of total work experience do you have?",
     "willing_to_relocate": "Are you willing to relocate?",
 }
 
@@ -51,14 +55,29 @@ class Readiness:
         }
 
 
-def user_blockers(settings: Settings, profile: UserProfile) -> list[str]:
+def user_blockers(settings: Settings, profile: UserProfile, db: Session | None = None) -> list[str]:
+    """What only the user can provide. With ``db``, answers the user saved in the dashboard
+    (reusable for every application) count too."""
     blockers = []
     if locate_master_resume(settings) is None:
         blockers.append(
             "Master resume not available to PIE: put it in resumes/master/ or set "
             "MASTER_RESUME_PATH."
         )
-    known = set(profile.verified_profile.verified_answers)
+    from agent.execution.answers import AnswerBank  # same key names as the form filler
+
+    stored = []
+    if db is not None:
+        from database.models import ApplicationAnswer
+
+        stored = list(
+            db.scalars(
+                select(ApplicationAnswer).where(ApplicationAnswer.application_id.is_(None))
+            ).all()
+        )
+    known = set(profile.verified_profile.verified_answers) | set(
+        AnswerBank(profile, stored).verified_keys()
+    )
     blockers += [
         f"Missing verified answer '{k}': {q}"
         for k, q in STANDARD_QUESTIONS.items()
@@ -84,10 +103,11 @@ def evaluate_readiness(
         result.pending_steps.append(
             f"Job is {job.pipeline_state.value}: only shortlisted jobs can get an application"
         )
-    result.user_blockers = user_blockers(settings, profile)
+    result.user_blockers = user_blockers(settings, profile, db)
     if app is None:
         result.pending_steps.append("Create an application draft (create_application_draft)")
-    elif validated_resume_for(db, job, app) is None:
+    elif job.source not in PLATFORM_SOURCES and validated_resume_for(db, job, app) is None:
+        # (Job platforms send the resume saved on the user's profile there: no tailoring.)
         result.pending_steps.append(
             "Create a validated tailored resume for this job (create_tailored_resume)"
         )

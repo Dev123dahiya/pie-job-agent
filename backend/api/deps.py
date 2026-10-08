@@ -104,3 +104,10 @@ def browser_dep(settings: Annotated[Settings, Depends(get_settings)]) -> Any:
     from integrations.browser import get_browser_manager
 
     return get_browser_manager(settings)
+
+
+def platform_browser_dep(settings: Annotated[Settings, Depends(get_settings)]) -> Any:
+    """Opens the visible, logged-in browser of a platform (tests inject a fake)."""
+    from integrations.platforms.browser import get_platform_browser
+
+    return lambda platform: get_platform_browser(platform, settings)

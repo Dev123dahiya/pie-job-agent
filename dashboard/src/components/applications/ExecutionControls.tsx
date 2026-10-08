@@ -4,7 +4,7 @@ import clsx from "clsx";
 import { Loader2, OctagonAlert, Play, Send, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { canSubmit } from "@/lib/execution";
+import { canSubmit, failureText } from "@/lib/execution";
 import type { ApplicationDetail, BrowserSessionView, MissingAnswer } from "@/lib/types";
 
 type Result = { ok: boolean; data: Record<string, unknown> };
@@ -79,6 +79,7 @@ export function StartExecution({ app }: { app: ApplicationDetail }) {
     if (!r.ok) throw new Error(message(r, "Execution failed"));
     if (r.data.blocked_needs_user) return `Paused for you: ${String(r.data.user_action ?? "")}`;
     if (r.data.dry_run_complete) return "Dry run complete. Nothing has been submitted.";
+    if (r.data.failed) throw new Error(failureText(r.data));
     if (r.data.error) return `Stopped: ${String(r.data.error)}`;
     return `Session is ${String(r.data.state ?? "").toLowerCase().replace(/_/g, " ")}`;
   };

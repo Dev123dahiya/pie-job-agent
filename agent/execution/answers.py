@@ -7,7 +7,8 @@ Sources, in order of precedence:
 1. answers the user gave in the dashboard for THIS application (application_answers table)
 2. answers the user gave for all applications (application_answers, application_id NULL)
 3. the verified profile: identity (name, first/last name), contact details, links and
-   verified_answers (work authorization in India, relocation, notice period, salary)
+   verified_answers (work authorization in India, relocation, notice period, current CTC,
+   expected salary); total_experience comes from total_experience_years
 
 Nothing is ever guessed:
 - first/last name come from the verified identity: explicit first_name/last_name, or a name
@@ -103,6 +104,8 @@ class AnswerBank:
         put("email", facts.email)
         put("phone", facts.phone)
         put("location", facts.location)
+        if "total_experience_years" in facts.model_fields_set:  # set by the user, not a default
+            put("total_experience", f"{facts.total_experience_years:g}")
         for name, url in facts.links.items():
             put(name.lower(), url)
         for key, value in facts.verified_answers.items():
@@ -130,6 +133,10 @@ class AnswerBank:
         return self._answers.get(key) or Answer(
             key, None, AnswerStatus.UNKNOWN, "none", "No verified answer"
         )
+
+    def all(self) -> list["Answer"]:
+        """Every answer the bank knows (any status), sorted by key."""
+        return sorted(self._answers.values(), key=lambda a: a.key)
 
     def verified_keys(self) -> list[str]:
         return sorted(k for k, a in self._answers.items() if a.verified)

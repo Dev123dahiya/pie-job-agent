@@ -530,3 +530,60 @@ def test_api_job_detail_exposes_experience_gap(
     gap = detail["experience_gap"]
     assert gap["required"] == "0-2 years" and gap["status"] == "meets"
     assert gap["candidate"] == "0.4 years" and gap["internships_counted_as_full_time"] is False
+
+
+# --- D4: Resumes page -------------------------------------------------------------------------
+
+
+def test_api_resume_shows_which_applications_use_it_and_lock(
+    client: TestClient, api: dict[str, Any], job_id: Any, db: Session
+) -> None:
+    from database.enums import JobPipelineState
+    from database.models import Job
+
+    vid = client.post(f"/api/jobs/{job_id}/tailored-resume").json()["data"]["resume_version_id"]
+    assert client.post(f"/api/jobs/{job_id}/application-draft", json={}).status_code == 200
+    version = client.get(f"/api/resumes/versions/{vid}").json()
+    assert [u["job_id"] for u in version["used_by"]] == [str(job_id)]
+    assert version["locked"] is False and version["used_by"][0]["locked"] is False
+
+    job = db.get(Job, job_id)
+    assert job is not None
+    job.pipeline_state = JobPipelineState.SUBMITTED  # as if a live submission went through
+    db.commit()
+    listed = {v["id"]: v for v in client.get("/api/resumes/versions").json()}
+    assert listed[vid]["locked"] is True and listed[vid]["used_by"][0]["user_status"] == "applied"
+
+
+def test_api_master_resume_file_is_served_read_only(
+    client: TestClient, api: dict[str, Any], tailor_settings: Any
+) -> None:
+    res = client.get("/api/resumes/master/file")
+    assert res.status_code == 200 and "inline" in res.headers["content-disposition"]
+    master = tailor_settings.master_resume_path  # the fixture sets MASTER_RESUME_PATH
+    assert res.content == master.read_bytes()
+    # Nothing in the request can choose another file.
+    assert client.get("/api/resumes/master/file/../../.env").status_code == 404
+
+
+# --- Local ATS check -------------------------------------------------------------------------
+
+
+def test_api_ats_check_of_a_tailored_resume(
+    client: TestClient, api: dict[str, Any], job_id: Any, tailor_profile: Any
+) -> None:
+    vid = client.post(f"/api/jobs/{job_id}/tailored-resume").json()["data"]["resume_version_id"]
+    res = client.get(f"/api/resumes/versions/{vid}/ats")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    checks = {c["name"]: c for c in body["checks"]}
+    assert checks["text_readable"]["passed"] and checks["no_images"]["passed"]
+    assert checks["heading_skills"]["passed"] and checks["heading_education"]["passed"]
+    assert body["keyword_coverage"] is None or 0 <= body["keyword_coverage"] <= 100
+    # Missing skills the user does not have are listed apart, never as things to add.
+    have = {s.lower() for s in tailor_profile.verified_profile.all_skills()}
+    assert all(m.lower() not in have for m in body["missing_not_in_profile"])
+    assert all(m.lower() in have for m in body["missing_you_have"])
+    # Contact details are checked, never returned.
+    assert tailor_profile.verified_profile.email not in res.text
+    assert client.get(f"/api/resumes/versions/{uuid.uuid4()}/ats").status_code == 404

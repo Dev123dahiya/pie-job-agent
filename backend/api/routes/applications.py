@@ -7,9 +7,11 @@ a resume is never treated as permission to submit.
 """
 
 import uuid
+from datetime import date, datetime, time, timedelta
 from typing import Annotated, Any
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -19,7 +21,10 @@ from backend.api.deps import browser_dep, profile_dep
 from backend.core.config import Settings, get_settings, live_execution_block
 from backend.core.profile import UserProfile
 from backend.services import execution as svc
+from backend.services.platforms import Platform, platform_of
 from backend.services.readiness import evaluate_readiness
+from backend.services.statuses import UserStatus, user_status
+from backend.services.tailoring import resume_lock_reason
 from database.enums import BrowserExecutionMode
 from database.models import (
     Application,
@@ -41,6 +46,7 @@ STATUS = {
     "NOT_FOUND": 404,
     "PRECONDITION_FAILED": 409,
     "DUPLICATE_APPLICATION": 409,
+    "DAILY_LIMIT_REACHED": 429,
     "MODE_MISMATCH": 409,
     "VALIDATION_FAILED": 422,
     "USER_CONFIRMATION_REQUIRED": 428,
@@ -125,6 +131,9 @@ def _summary(db: Session, app: Application) -> dict[str, Any]:
         "title": job.title,
         "application_status": app.status.value,
         "job_status": job.pipeline_state.value,
+        "user_status": user_status(job.pipeline_state),
+        "platform": platform_of(job),
+        "resume_locked": resume_lock_reason(db, job, app) is not None,
         "requires_user_input": app.requires_user_input,
         "applied_at": app.applied_at,
         "updated_at": app.updated_at,
@@ -158,9 +167,48 @@ def mode(settings: SettingsDep) -> dict[str, Any]:
 
 
 @router.get("")
-def list_applications(db: DB) -> list[dict[str, Any]]:
-    apps = db.scalars(select(Application).order_by(Application.updated_at.desc())).all()
-    return [_summary(db, a) for a in apps]
+def list_applications(
+    db: DB,
+    settings: SettingsDep,
+    platform: Platform | None = None,
+    status_group: Annotated[list[UserStatus] | None, Query()] = None,
+    updated_from: date | None = None,
+    updated_to: date | None = None,
+) -> list[dict[str, Any]]:
+    """All applications, newest activity first. Filters: platform, the six statuses, and the
+    date of the last change (your timezone)."""
+    if updated_from and updated_to and updated_from > updated_to:
+        raise HTTPException(422, "updated_from must not be after updated_to")
+    zone = ZoneInfo(settings.timezone)
+    stmt = select(Application).order_by(Application.updated_at.desc())
+    if updated_from:
+        stmt = stmt.where(
+            Application.updated_at >= datetime.combine(updated_from, time.min, tzinfo=zone)
+        )
+    if updated_to:
+        end = datetime.combine(updated_to + timedelta(days=1), time.min, tzinfo=zone)
+        stmt = stmt.where(Application.updated_at < end)
+    rows = [_summary(db, a) for a in db.scalars(stmt).all()]
+    if platform:
+        rows = [r for r in rows if r["platform"] == platform]
+    if status_group:
+        rows = [r for r in rows if r["user_status"] in status_group]
+    return rows
+
+
+def _resume_used(db: Session, app: Application) -> dict[str, Any] | None:
+    version = app.resume_version
+    if version is None:
+        return None
+    reason = resume_lock_reason(db, app.job, app)
+    return {
+        "version_id": str(version.id),
+        "version_number": version.version_number,
+        "is_master": version.is_master,
+        "file_name": version.file_path.replace("\\", "/").rsplit("/", 1)[-1],
+        "locked": reason is not None,
+        "lock_reason": reason,
+    }
 
 
 @router.get("/{app_id}")
@@ -194,6 +242,8 @@ def application_detail(
         "url": job.url,
         "application_url": job.application_url,
         "user_action_required": app.user_action_required,
+        "last_error": app.last_error,
+        "resume": _resume_used(db, app),
         "readiness": evaluate_readiness(db, settings, profile, job, app).as_dict(),
         **execution_mode(settings),
         "confirmation_statement": confirmation_statement(job),

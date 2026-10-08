@@ -195,7 +195,7 @@ def test_adzuna_search_diagnostics(pipeline: dict[str, Any], db: Session) -> Non
     assert t["freshness_unknown"] == 6 and t["freshness_fresh"] == 0  # 'created' not trusted
     assert t["duplicate"] == 2 and t["new"] == 4  # the Greenhouse twin + the repeated record
     # 8 roles x 4 places (Gurugram, Noida, Delhi NCR, India-wide; Remote is no Adzuna place) x 1
-    assert t["pages"] == 32 and out["source"]["name"] == "adzuna"
+    assert t["pages"] == 40 and out["source"]["name"] == "adzuna"  # 8 terms x 5 locations
     first = db.scalars(
         select(AgentAction)
         .where(
@@ -206,7 +206,7 @@ def test_adzuna_search_diagnostics(pipeline: dict[str, Any], db: Session) -> Non
     ).first()
     assert first is not None and (first.input or {})["params"] == {
         "what": "Software Engineer",
-        "where": "Gurugram",
+        "where": "Bengaluru",  # the first configured location
     }
     logged = " ".join(
         str(a.input) + str(a.output) + str(a.error) for a in db.scalars(select(AgentAction))
@@ -227,7 +227,7 @@ def test_failures_are_classified(
 
     summary = run(session_factory, adzuna_source(handler), query)
     t = completed(db, summary.run_id)["totals"]
-    assert t["failed_timeout"] == 1 and t["failed_rate_limited"] == 31  # 32 searches
+    assert t["failed_timeout"] == 1 and t["failed_rate_limited"] == 39  # 40 searches
     assert db.scalar(select(func.count()).select_from(Job)) == 0
 
 

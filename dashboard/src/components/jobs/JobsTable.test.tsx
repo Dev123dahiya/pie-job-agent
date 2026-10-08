@@ -10,7 +10,8 @@ const job = (over: Partial<JobSummary>): JobSummary => ({
   remote_type: "unknown", salary_min: null, salary_max: null, salary_currency: null,
   experience_required: null, posted_at: null, discovered_at: "2026-09-28T10:00:00Z",
   freshness: "unknown", status: "DISCOVERED", url: "https://example.invalid/1", times_seen: 1,
-  last_error: null, analysis: null, tailored_version: null, ...over,
+  last_error: null, analysis: null, tailored_version: null, user_status: "found",
+  platform: "company_site", apply_type: "company_form", ...over,
 });
 
 describe("JobsTable", () => {
@@ -38,6 +39,19 @@ describe("JobsTable", () => {
     expect(screen.getByText("also on ashby")).toBeInTheDocument();
     expect(screen.getByText("Not listed")).toBeInTheDocument(); // no number is invented
     expect(screen.getByText("As stated: ₹8L - ₹12L")).toBeInTheDocument();
+  });
+
+  it("shows the six-status label over the detailed state, and only allowed actions", () => {
+    render(<JobsTable emptyMessage="none" jobs={[
+      job({ id: "s", title: "Skipped one", status: "REJECTED_BY_AGENT", user_status: "skipped" }),
+      job({ id: "n", title: "New one" }),
+      job({ id: "d", title: "Done one", status: "SUBMITTED", user_status: "applied" }),
+    ]} />);
+    expect(screen.getByText("Skipped")).toBeInTheDocument();
+    expect(screen.getByText("Applied")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Move to shortlist" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Skip" })).toHaveLength(1); // not on submitted
+    expect(screen.getAllByText("Employer form")).toHaveLength(3);
   });
 
   it("shows an empty state", () => {

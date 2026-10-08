@@ -75,6 +75,15 @@ export type Analysis = {
 export type JobSummary = {
   id: string;
   source: string;
+  /** One of the six statuses; `status` keeps PIE's detailed state. */
+  user_status: UserStatusKey;
+  platform: "naukri" | "linkedin" | "company_site" | "instahyre";
+  apply_type:
+    | "company_form"
+    | "naukri_direct"
+    | "linkedin_easy_apply"
+    | "instahyre_direct"
+    | "external_link";
   company: string | null;
   title: string;
   location: string | null;
@@ -126,6 +135,17 @@ export type ResumeVersionBrief = {
   role: string | null;
   created_at: string;
   changes_summary: string | null;
+  used_by: ResumeUse[];
+  locked: boolean;
+};
+
+export type ResumeUse = {
+  application_id: string;
+  job_id: string;
+  title: string;
+  company: string | null;
+  user_status: UserStatusKey;
+  locked: boolean;
 };
 
 export type ChangeDetails = {
@@ -378,6 +398,9 @@ export type ApplicationSummary = {
   requires_user_input: boolean;
   applied_at: string | null;
   updated_at: string;
+  user_status: UserStatusKey;
+  platform: "naukri" | "linkedin" | "company_site" | "instahyre";
+  resume_locked: boolean;
   latest_session: { id: string; mode: "DRY_RUN" | "LIVE"; state: string; current_step: string | null } | null;
 };
 
@@ -385,6 +408,11 @@ export type ApplicationDetail = ApplicationSummary & ExecutionModeStatus & {
   url: string;
   application_url: string | null;
   user_action_required: string | null;
+  last_error: string | null;
+  resume: {
+    version_id: string; version_number: number; is_master: boolean; file_name: string;
+    locked: boolean; lock_reason: string | null;
+  } | null;
   readiness: Readiness;
   confirmation_statement: string;
   sessions: BrowserSessionView[];
@@ -466,3 +494,38 @@ export type LeadSummary = {
   boards_needing_review: LeadBoard[];
   active_boards: LeadBoard[];
 };
+
+// --- Home page (D1) -------------------------------------------------------------------------
+
+export type UserStatusKey = "found" | "skipped" | "applied" | "needs_input" | "manual" | "failed";
+export type StatusCounts = Record<UserStatusKey, number>;
+
+export interface PlatformMode {
+  platform: "naukri" | "linkedin" | "company_site" | "instahyre";
+  mode: "dry-run" | "review" | "auto";
+  built: boolean;
+  note: string | null;
+  login: "logged_in" | "expired" | "never" | "blocked" | null;
+  login_command?: string | null;
+}
+
+export interface HomeStatus {
+  live_possible: boolean;
+  live_note: string;
+  platforms: PlatformMode[];
+  today: StatusCounts;
+  all_time: StatusCounts;
+  quick_links: {
+    needs_input: number;
+    failed: number;
+    manual: number;
+    waiting_for_review: number;
+  };
+}
+
+export interface DailyLimit {
+  platform: "total" | "naukri" | "linkedin" | "company_site" | "instahyre";
+  used: number;
+  limit: number;
+  remaining: number;
+}

@@ -55,6 +55,16 @@ SENSITIVE_KEYS = {
     "legal_question",
     "work_authorization_other_country",
 }
+# Sensitive keys that name a TYPE of question, not one question: "No" to "ever convicted?"
+# must never answer "do you agree to a background check?". The user's answer is stored and
+# reused only for the exact question it was given for.
+PER_QUESTION_KEYS = {
+    "sensitive_demographic",
+    "consent",
+    "citizenship",
+    "security_question",
+    "legal_question",
+}
 TEXT_KINDS = {"text", "textarea", "email", "tel", "url"}
 
 
@@ -129,7 +139,7 @@ def classify(field: dict[str, Any], job_location: str | None) -> tuple[str | Non
             return "resume", "resume upload"
         return None, "unrecognised file upload"
     if re.search(
-        r"gender|\brace\b|ethnic|veteran|disabilit|sexual orientation|pronoun|religio|caste"
+        r"gender|\brace\b|ethnic|veteran|disabilit|sexual orientation|pronoun|religio|\bcaste\b"
         r"|date of birth|\bage\b|marital|hispanic|latino",
         text,
     ):
@@ -150,7 +160,8 @@ def classify(field: dict[str, Any], job_location: str | None) -> tuple[str | Non
         return "legal_question", "legal / compliance question"
 
     # Consequential questions - strict.
-    if re.search(r"sponsor|visa", text):
+    # Whole words: "visa" must not match inside "advisable".
+    if re.search(r"\bsponsor|\bvisas?\b", text):
         return "sponsorship", "sponsorship question (separate from work authorization)"
     if re.search(
         r"authori[sz]ed to work|work authori[sz]ation|right to work|eligible to work"
@@ -180,8 +191,16 @@ def classify(field: dict[str, Any], job_location: str | None) -> tuple[str | Non
         return "willing_to_relocate", "willingness to relocate"
     if re.search(r"notice period", text):
         return "notice_period", "notice period"
-    if re.search(r"current (salary|ctc|compensation)", text):
-        return None, "current salary (not verified)"
+    if re.search(r"current (annual )?(salary|ctc|compensation)", text):
+        return "current_ctc", "current CTC"
+    # Overall experience only: "years of experience with Python" is a skill question.
+    if re.search(
+        r"\b(total|overall) (work |professional )?experience\b"
+        r"(?!\s+(with|on|using|as|in (?!years)))"
+        r"|^(total )?(years of )?(work )?experience( in years| \(years\))?$",
+        text,
+    ):
+        return "total_experience", "total experience"
     if re.search(
         r"expected (salary|ctc|compensation)|salary expectation|desired (salary|pay)"
         r"|compensation expectation|\bsalary\b|\bctc\b",
@@ -202,7 +221,17 @@ def classify(field: dict[str, Any], job_location: str | None) -> tuple[str | Non
         return by_autocomplete[auto], f"autocomplete={auto}"
     if kind == "email" or re.search(r"e ?mail", text):
         return "email", "email"
-    if kind == "tel" or re.search(r"phone|mobile|telephone|contact number", text):
+    # A phone COUNTRY CODE (LinkedIn: "Phone country code" dropdown) is its own answer: it
+    # must never receive the phone number itself.
+    if re.search(r"\b(country|dialing|dial)\s*code\b|\bcountry\s*calling\b", text):
+        return "phone_country_code", "phone country code"
+    # "Mobile" / "Mobile no." is a phone number field, but a question about mobile apps or
+    # mobile development must never receive the phone number.
+    if kind == "tel" or re.search(
+        r"phone|telephone|contact number|\bcell\b|\bmobile\b"
+        r"(?!\s*(app|application|development|developer|engineer|platform|device|framework))",
+        text,
+    ):
         return "phone", "phone"
     if re.search(r"preferred (first )?name|nick ?name", text):
         return None, "preferred name (not verified)"
@@ -285,8 +314,14 @@ def plan_field(
             return stop(UNKNOWN, f"no verified answer ({reason})", question_key(label), stored)
         key = stored.key
 
+    sensitive = key in SENSITIVE_KEYS
+    # The user's own answer for exactly this question wins over the general one (e.g. the
+    # option they picked in one employer's notice-period dropdown).
+    exact = bank.get(question_key(label))
+    if key in PER_QUESTION_KEYS or (exact.verified and exact.from_user):
+        key = question_key(label)
     answer = bank.get(key)
-    if key in SENSITIVE_KEYS and not (answer.verified and answer.from_user):
+    if sensitive and not (answer.verified and answer.from_user):
         return stop(SENSITIVE, f"{reason}: only you can answer this", key, answer)
     if answer.conflict:
         return stop(AMBIGUOUS, f"answer '{key}': {answer.note}", key, answer)
@@ -300,7 +335,8 @@ def plan_field(
     labels = option_labels(field)
     target = fill_target(kind, labels, answer.value)
     if isinstance(target, str):  # messages name the answer key, never the answer itself
-        return stop(AMBIGUOUS, f"answer '{key}': {target}", key, answer)
+        # The user's choice for this dropdown is saved for exactly this question.
+        return stop(AMBIGUOUS, f"answer '{key}': {target}", question_key(label), answer)
     value, option, why = target
     selected = field.get("selected_label") or None
     plan = FieldPlan(**base, key=key, category=VERIFIED_AUTOFILL, action="fill", reason=reason,

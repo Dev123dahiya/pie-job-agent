@@ -48,6 +48,7 @@ from agent.execution.mapping import (
 )
 from backend.core.config import Settings, live_execution_block
 from backend.core.profile import UserProfile
+from backend.services.limits import limit_block
 from backend.services.readiness import evaluate_readiness, user_blockers
 from database.base import utcnow
 from database.enums import (
@@ -142,6 +143,25 @@ def check_live(settings: Settings) -> None:
             "VISIBLE_BROWSER_REQUIRED",
             "Live sessions may need you (CAPTCHA, OTP, login): set BROWSER_HEADLESS=false.",
         )
+
+
+def check_daily_limit(
+    ctx: ExecContext, session: BrowserSession | None, job: Job, app: Application
+) -> None:
+    """Raise when a live application for this job would go over today's limits."""
+    reason = limit_block(ctx.db, ctx.settings.automation_path, ctx.settings.timezone, job)
+    if reason is None:
+        return
+    _log(
+        ctx,
+        session,
+        f"Refused: {reason}",
+        ExternalActionResult.REFUSED,
+        application_id=app.id,
+        domain=domain_of(job.application_url or job.url),
+    )
+    ctx.db.commit()
+    raise ExecutionError("DAILY_LIMIT_REACHED", reason)
 
 
 # --- helpers ------------------------------------------------------------------------------
@@ -247,14 +267,24 @@ def _require_active(session: BrowserSession, *states: B) -> None:
         )
 
 
-def _shoot(ctx: ExecContext, session: BrowserSession, label: str) -> None:
+FAILURE_SCREENSHOT_TIMEOUT = 20.0  # seconds: a crashed page must not hold up the cleanup
+
+
+def _shoot(
+    ctx: ExecContext, session: BrowserSession, label: str, timeout: float | None = None
+) -> None:
+    """Best effort: a page that cannot be photographed is recorded, never an error."""
     root = ctx.settings.application_artifacts_dir
     n = len(session.screenshots or []) + 1
     rel = Path(str(session.application_id)) / str(session.id) / f"{n:02d}_{label}.png"
     try:
-        ctx.browser.screenshot(str(session.id), root / rel)
-    except BrowserError as exc:
-        session.errors = [*(session.errors or []), {"step": label, "error": str(exc)[:300]}]
+        if timeout is None:
+            ctx.browser.screenshot(str(session.id), root / rel)
+        else:
+            ctx.browser.screenshot(str(session.id), root / rel, timeout=timeout)
+    except Exception as exc:  # crashed or hung page, disk full...
+        error = f"screenshot failed: {type(exc).__name__}: {exc}"[:300]
+        session.errors = [*(session.errors or []), {"step": label, "error": error}]
         return
     session.screenshots = [
         *(session.screenshots or []),
@@ -402,6 +432,23 @@ def find_duplicate(db: Session, job: Job, app: Application) -> str | None:
     return None
 
 
+def next_generation(db: Session, app: Application) -> int:
+    """A new submission key only after the user confirmed every earlier attempt was NOT sent
+    (USER_NOT_SUBMITTED); any other earlier attempt keeps the same key, so the database
+    itself refuses a second submission."""
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(SubmissionAttempt)
+            .where(
+                SubmissionAttempt.application_id == app.id,
+                SubmissionAttempt.outcome == SubmissionOutcome.USER_NOT_SUBMITTED,
+            )
+        )
+        or 0
+    )
+
+
 def submission_key(app: Application, job: Job, generation: int) -> str:
     target = job.canonical_url or job.application_url or job.url
     raw = f"{app.id}|{target}|submit|{generation}"
@@ -456,8 +503,9 @@ def _plan_page(
             "category": p.category,
             "reason": p.reason,
             "answer_status": p.answer_status,
+            "options": option_labels(f),  # the page's own choices, shown to the user
         }
-        for p in plans
+        for p, f in zip(plans, snap.fields, strict=True)
         if p.action == "block"
     ]
     session.skipped_fields = [
@@ -685,13 +733,18 @@ def open_application(ctx: ExecContext, job_id: uuid.UUID) -> dict[str, Any]:
         )
         ctx.db.commit()
         raise ExecutionError("DUPLICATE_APPLICATION", duplicate)
+    if ctx.mode is BrowserExecutionMode.LIVE:
+        check_daily_limit(ctx, existing, job, app)
 
     resuming = existing is not None and existing.state is B.WAITING_FOR_USER
     state = job.pipeline_state
     if existing is not None and not resuming:
         if state not in (S.APPLICATION_IN_PROGRESS, S.READY_FOR_SUBMISSION):
             raise ExecutionError("PRECONDITION_FAILED", f"Job is {state.value}")
-        _ensure_page(ctx, existing, job, app)
+        try:
+            _ensure_page(ctx, existing, job, app)
+        except (BrowserError, ExecutionError) as exc:
+            return _fail(ctx, existing, job, app, f"Could not restore the application page: {exc}")
         ctx.db.commit()
         return result(existing, job, reused=True, note="Session already open")
     if resuming:
@@ -704,7 +757,7 @@ def open_application(ctx: ExecContext, job_id: uuid.UUID) -> dict[str, Any]:
             "(a draft, a validated tailored resume and every standard answer).",
         )
     readiness = evaluate_readiness(ctx.db, ctx.settings, ctx.profile, job, app)
-    blockers = user_blockers(ctx.settings, ctx.profile)
+    blockers = user_blockers(ctx.settings, ctx.profile, ctx.db)
     version = _validated_resume(ctx, app)
     if blockers or version is None or (not resuming and not readiness.ready):
         raise ExecutionError(
@@ -717,10 +770,18 @@ def open_application(ctx: ExecContext, job_id: uuid.UUID) -> dict[str, Any]:
             "PRECONDITION_FAILED", "The validated tailored resume has no PDF artifact to upload"
         )
 
+    try:  # a browser that cannot start is reported before PIE creates a session or moves the job
+        ctx.browser.start()
+    except Exception as exc:
+        raise ExecutionError("BROWSER_ERROR", f"The browser could not be started: {exc}") from exc
+
     url = job.application_url or job.url
     if resuming:
         assert existing is not None
-        return _resume_session(ctx, existing, job, app)
+        try:
+            return _resume_session(ctx, existing, job, app)
+        except (BrowserError, ExecutionError) as exc:
+            return _fail(ctx, existing, job, app, f"Could not resume the application page: {exc}")
     session = BrowserSession(
         application_id=app.id,
         job_id=job.id,
@@ -749,7 +810,7 @@ def open_application(ctx: ExecContext, job_id: uuid.UUID) -> dict[str, Any]:
         snap = ctx.browser.open(
             str(session.id), url, dry_run=ctx.mode is BrowserExecutionMode.DRY_RUN
         )
-    except BrowserError as exc:
+    except Exception as exc:  # BrowserError, or anything else: never leave the job in progress
         return _fail(ctx, session, job, app, f"Could not open the application page: {exc}")
     session.target_domain = snap.domain or session.target_domain
     _record_page(session, snap)
@@ -805,19 +866,53 @@ def _resume_session(
 
 
 def _fail(
-    ctx: ExecContext, session: BrowserSession, job: Job, app: Application, message: str
+    ctx: ExecContext,
+    session: BrowserSession,
+    job: Job,
+    app: Application,
+    message: str,
+    details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """A failure PIE cannot recover from on its own (REQUIREMENTS 12): take a screenshot, log
+    the error with the step it happened at, mark the job FAILED and close the browser page.
+    Nothing is retried automatically; the user retries failed jobs themselves."""
+    stage = ctx.tool or "execution"
+    # 1. The outcome first, so the job ends up FAILED whatever the browser does next.
     session.state = B.FAILED
-    session.current_step = "Failed"
-    session.errors = [*(session.errors or []), {"step": ctx.tool, "error": message[:500]}]
+    session.current_step = f"Failed at {stage}"
+    session.errors = [*(session.errors or []), {"step": stage, "error": message[:500]}]
     app.last_error = message[:2000]
+    app.next_action = "Failed: check the error and screenshot, then retry the job yourself"
     if job.pipeline_state in (S.APPLICATION_IN_PROGRESS, S.READY_FOR_SUBMISSION):
         _move(ctx, job, app, S.FAILED, message)
-    _log(ctx, session, message, ExternalActionResult.FAILED, error=message)
+    _event(ctx, job, app, "execution_failed", message, {"stage": stage, **(details or {})})
+    _log(ctx, session, f"Failed at {stage}: {message}", ExternalActionResult.FAILED, error=message)
     ctx.db.commit()
-    with contextlib.suppress(BrowserError):
+    # 2. Best effort: what the page looked like, then free the page and its browser context.
+    #    Either may fail on a crashed or hung page; that is recorded, not raised.
+    _shoot(ctx, session, "failed", timeout=FAILURE_SCREENSHOT_TIMEOUT)
+    try:
         ctx.browser.close(str(session.id))
-    return result(session, job, failed=True, error=message)
+    except Exception as exc:
+        error = f"closing the page failed: {type(exc).__name__}: {exc}"[:300]
+        session.errors = [*(session.errors or []), {"step": "close", "error": error}]
+    ctx.db.commit()
+    return result(session, job, failed=True, error=message, failed_stage=stage)
+
+
+def fail_session(
+    ctx: ExecContext, session_id: uuid.UUID, message: str, details: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    """Fail an active session after an error (see ``_fail``). A session that already ended, or
+    that is paused for the user, is left alone. Returns the failure result, or None."""
+    ctx.db.rollback()  # drop half-done changes from the failed step; keep what was committed
+    session = ctx.db.get(BrowserSession, session_id)
+    if session is None or session.state not in ACTIVE or session.state is B.WAITING_FOR_USER:
+        return None
+    job, app = ctx.db.get(Job, session.job_id), ctx.db.get(Application, session.application_id)
+    if job is None or app is None:
+        return None
+    return _fail(ctx, session, job, app, message, details)
 
 
 # --- inspect ------------------------------------------------------------------------------
@@ -1217,6 +1312,7 @@ def submit(ctx: ExecContext, session_id: uuid.UUID) -> dict[str, Any]:
         _log(ctx, session, f"Submit refused: {duplicate}", ExternalActionResult.REFUSED)
         ctx.db.commit()
         raise ExecutionError("DUPLICATE_APPLICATION", duplicate)
+    check_daily_limit(ctx, session, job, app)  # again right before the click
     # 2. application state
     if job.pipeline_state is not S.READY_FOR_SUBMISSION:
         raise ExecutionError(
@@ -1255,19 +1351,8 @@ def submit(ctx: ExecContext, session_id: uuid.UUID) -> dict[str, Any]:
     ):
         raise ExecutionError("PRECONDITION_FAILED", "The form changed since it was prepared")
 
-    generation = (
-        ctx.db.scalar(
-            select(func.count())
-            .select_from(SubmissionAttempt)
-            .where(
-                SubmissionAttempt.application_id == app.id,
-                SubmissionAttempt.outcome == SubmissionOutcome.USER_NOT_SUBMITTED,
-            )
-        )
-        or 0
-    )
     attempt = SubmissionAttempt(
-        idempotency_key=submission_key(app, job, generation),
+        idempotency_key=submission_key(app, job, next_generation(ctx.db, app)),
         application_id=app.id,
         session_id=session.id,
         outcome=SubmissionOutcome.PENDING,
@@ -1576,11 +1661,33 @@ def run_execution(ctx: ExecContext, job_id: uuid.UUID) -> dict[str, Any]:
         check_live(ctx.settings)
     steps: list[dict[str, Any]] = []
     ctx.tool = "open_application"
-    out = open_application(ctx, job_id)
+    out = open_application(ctx, job_id)  # refusals here happen before any session exists
     steps.append({"step": "open", "state": out["state"]})
     sid = uuid.UUID(out["session_id"])
     if out.get("failed") or out["blocked_needs_user"]:
         return {**out, "steps": steps}
+    try:
+        return _run_steps(ctx, sid, steps)
+    except ExecutionError as exc:
+        message, details = exc.message, {"code": exc.code, **exc.details}
+    except BrowserError as exc:
+        message, details = f"Browser error: {exc}", {"code": "BROWSER_ERROR"}
+    except Exception as exc:  # a bug must not leave the job stuck "in progress"
+        logger.exception("Browser execution failed at %s", ctx.tool)
+        message = f"Unexpected error: {type(exc).__name__}: {exc}"
+        details = {"code": "INTERNAL_ERROR"}
+    steps.append({"step": ctx.tool, "error": message, "details": details})
+    failed = fail_session(ctx, sid, message, details)
+    if failed is None:  # the session had already ended or is waiting for the user
+        session = ctx.db.get(BrowserSession, sid)
+        assert session is not None
+        failed = result(session, *_job_of(ctx, session))
+    return {**failed, "error": message, "steps": steps, "details": details}
+
+
+def _run_steps(ctx: ExecContext, sid: uuid.UUID, steps: list[dict[str, Any]]) -> dict[str, Any]:
+    """inspect -> fill -> upload -> prepare -> (dry run) close. Any error is raised to
+    ``run_execution``, which fails the session cleanly."""
     session = ctx.db.get(BrowserSession, sid)
     assert session is not None
     if session.state in (B.OPEN, B.FORM_DETECTED, B.FILLING):
@@ -1607,19 +1714,8 @@ def run_execution(ctx: ExecContext, job_id: uuid.UUID) -> dict[str, Any]:
         except ExecutionError as exc:
             steps.append({"step": "upload", "error": exc.message, "details": exc.details})
     ctx.tool = "prepare_submission"
-    try:
-        out = prepare_submission(ctx, sid)
-        steps.append({"step": "prepare", "ready": out.get("ready")})
-    except ExecutionError as exc:
-        steps.append({"step": "prepare", "error": exc.message, "details": exc.details})
-        session.current_step = f"Stopped before submission: {exc.message}"
-        ctx.db.commit()
-        return {
-            **result(session, *_job_of(ctx, session)),
-            "steps": steps,
-            "error": exc.message,
-            "details": exc.details,
-        }
+    out = prepare_submission(ctx, sid)  # a form that is not ready fails the run (REQUIREMENTS 9)
+    steps.append({"step": "prepare", "ready": out.get("ready")})
     if out["blocked_needs_user"] or ctx.mode is BrowserExecutionMode.LIVE:
         return {**out, "steps": steps}
     ctx.tool = "close_application_session"

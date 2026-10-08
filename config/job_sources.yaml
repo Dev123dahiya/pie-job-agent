@@ -33,6 +33,7 @@ search:
   # location it matches, so the preferred NCR places come first; "India" then covers the rest
   # of the country (it also matches NCR postings, so NCR can never fall out of scope).
   locations:
+    - Bengaluru  # first: the user's focus since 2026-10-05
     - Gurugram
     - Noida
     - Delhi NCR
@@ -40,6 +41,7 @@ search:
     - India
   # Regex patterns (case-insensitive) matched against a posting's location text.
   location_patterns:
+    Bengaluru: ["bengaluru", "bangalore"]
     Gurugram: ["gurugram", "gurgaon"]
     Noida: ["noida"]
     Delhi NCR: ["\\bdelhi\\b", "\\bncr\\b", "faridabad", "ghaziabad"]
@@ -128,6 +130,49 @@ skills_vocabulary:
   - Distributed Systems
 
 sources:
+  # Naukri and LinkedIn (Easy Apply): search pages read in a VISIBLE browser that uses your
+  # own login (log in once: python -m backend.scripts.login naukri / linkedin). Low volume:
+  # max_searches keyword x location searches, `pages` result pages each, `max_details` job
+  # pages opened per run, a pause between pages. A login page pauses the source; a refusal
+  # (bot protection) stops it - PIE never disguises its browser.
+  - name: naukri
+    type: naukri
+    enabled: true
+    max_searches: 12  # Bangalore first, then NCR (user, 2026-10-05)
+    pages: 1
+    max_details: 15
+    request_delay_seconds: 8.0
+
+  - name: linkedin
+    type: linkedin
+    enabled: true
+    max_searches: 8  # Bangalore first, then NCR (user, 2026-10-05)
+    pages: 1
+    max_details: 10
+    request_delay_seconds: 10.0
+
+  # Instahyre: the opportunities page's own search, run from your logged-in page; each kept
+  # job's public page gives its post date and experience. Jobs stay listed for months and
+  # there is no "newest first", so freshness is 14 days here (backend/services/freshness.py).
+  # Applying on Instahyre comes next; until then its shortlisted jobs wait in the queue.
+  - name: instahyre
+    type: instahyre
+    enabled: true
+    max_searches: 6
+    max_details: 25
+    request_delay_seconds: 6.0
+    search_experience_years: 1  # the user's choice (2026-10-05)
+
+  # foundit: SEARCH ONLY (the user's choice, 2026-10-05). Its listings are almost all copies of
+  # LinkedIn jobs or company career pages: LinkedIn/Naukri/Instahyre copies are dropped, and
+  # shortlisted jobs go to the Manual apply list with the employer's own apply link.
+  - name: foundit
+    type: foundit
+    enabled: true
+    max_searches: 6
+    max_details: 15
+    request_delay_seconds: 6.0
+
   # Greenhouse Job Board API: official, public, documented, no login required.
   # https://developers.greenhouse.io/job-board.html
   # Add or remove company board tokens (the name in boards.greenhouse.io/<token>).

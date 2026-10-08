@@ -18,7 +18,14 @@ from backend.api.routes import (
     health,
     jobs,
     leads,
+    logs,
+    needs_input,
     resumes,
+    review,
+    runs,
+)
+from backend.api.routes import (
+    settings as settings_routes,
 )
 from backend.core.config import Settings, get_settings
 from backend.core.local_only import LocalOnlyMiddleware
@@ -74,6 +81,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(applications.router, prefix="/api")
     app.include_router(daily.router, prefix="/api")
     app.include_router(leads.router, prefix="/api")
+    app.include_router(logs.router, prefix="/api")
+    app.include_router(needs_input.router, prefix="/api")
+    app.include_router(runs.router, prefix="/api")
+    app.include_router(review.router, prefix="/api")
+    app.include_router(settings_routes.router, prefix="/api")
 
     if settings.development_mode:
         logger.info("DEVELOPMENT_MODE is on: no real applications will be submitted")
@@ -81,13 +93,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 def daily_scheduler(settings: Settings) -> DailyScheduler:
-    """The in-process daily discovery + analysis schedule (see backend.services.daily)."""
+    """The in-process daily schedule: discovery + analysis (backend.services.daily), then
+    auto-apply when DAILY_AUTO_APPLY is on (backend.services.daily_auto)."""
     factory = get_session_factory()
+
+    def trigger() -> None:
+        run_daily(factory, build_daily_plan(settings), "scheduled")
+        if settings.daily_auto_apply:
+            from agent.tools import build_default_registry
+            from backend.core.profile import load_user_profile
+            from backend.services.daily_auto import run_daily_auto
+            from integrations.platforms.browser import get_platform_browser
+
+            try:
+                run_daily_auto(factory, settings, load_user_profile(), build_default_registry(),
+                               lambda p: get_platform_browser(p, settings))  # fmt: skip
+            except Exception:
+                logger.exception("Daily auto-apply failed")
+
     return DailyScheduler(
         at=parse_run_time(settings.daily_run_time),
         tz=ZoneInfo(settings.timezone),
         factory=factory,
-        trigger=lambda: run_daily(factory, build_daily_plan(settings), "scheduled"),
+        trigger=trigger,
     )
 
 

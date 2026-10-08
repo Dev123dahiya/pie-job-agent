@@ -7,6 +7,7 @@ from sqlalchemy import engine_from_config, pool
 import database.models  # noqa: F401  (registers all tables)
 from backend.core.config import get_settings
 from database.base import Base, UTCDateTime
+from database.session import ensure_sqlite_dir
 
 config = context.config
 if config.config_file_name is not None:
@@ -15,6 +16,7 @@ if config.config_file_name is not None:
 # An explicitly passed URL (e.g. tests) wins over the environment.
 if not config.get_main_option("sqlalchemy.url"):
     config.set_main_option("sqlalchemy.url", get_settings().database_url)
+ensure_sqlite_dir(config.get_main_option("sqlalchemy.url") or "")
 
 target_metadata = Base.metadata
 

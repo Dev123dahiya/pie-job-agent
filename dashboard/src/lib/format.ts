@@ -52,5 +52,6 @@ export const POSTED_KIND_LABEL: Record<string, string> = {
   created: "created (published on or after)",
   published_tz_unknown: "published (time zone not stated: shown as oldest possible)",
   updated_only: "only an update time is known",
+  relative_upper_bound: "from an age like \"2 days ago\" (shown as oldest possible)",
   unknown: "no post date from the source",
 };

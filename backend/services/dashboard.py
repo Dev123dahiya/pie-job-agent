@@ -1,12 +1,14 @@
 """Aggregates for the dashboard overview, computed from the database."""
 
 from datetime import UTC, datetime, time
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from backend.core.config import REPO_ROOT, Settings
 from database.enums import ApplicationStatus as AS
 from database.enums import EmailClassification as EC
 from database.enums import JobPipelineState as JS
@@ -135,5 +137,136 @@ def build_overview(
             jobs_processed=latest_run.jobs_processed if latest_run else 0,
             applications_submitted=latest_run.applications_submitted if latest_run else 0,
             error_count=len(latest_run.errors) if latest_run else 0,
+        ),
+    )
+
+
+# --- Home page (REQUIREMENTS 19.2.1) -------------------------------------------------------
+
+
+class PlatformMode(BaseModel):
+    platform: str  # naukri | linkedin | company_site
+    mode: str  # dry-run | review | auto
+    built: bool  # False: the platform module comes in a later phase
+    note: str | None
+    login: str | None  # logged_in | expired | never | blocked; None = not applicable / not built
+    login_command: str | None = None  # how to log in (again)
+
+
+class StatusCounts(BaseModel):
+    found: int
+    skipped: int
+    applied: int
+    needs_input: int
+    manual: int
+    failed: int
+
+
+class QuickLinks(BaseModel):
+    needs_input: int
+    failed: int
+    manual: int | None
+    waiting_for_review: int | None
+
+
+class HomeStatus(BaseModel):
+    live_possible: bool  # True: DEVELOPMENT_MODE=false and EXTERNAL_LIVE_ENABLED=true
+    live_note: str
+    platforms: list[PlatformMode]
+    today: StatusCounts
+    all_time: StatusCounts
+    quick_links: QuickLinks
+
+
+def _waiting_for_review(db: Session) -> int:
+    from database.enums import BrowserExecutionMode, BrowserSessionState
+    from database.models import BrowserSession
+
+    return _count(
+        db,
+        BrowserSession,
+        BrowserSession.mode == BrowserExecutionMode.LIVE,
+        BrowserSession.state == BrowserSessionState.READY_FOR_SUBMISSION,
+    )
+
+
+def _status_counts(db: Session, *where: object) -> StatusCounts:
+    from backend.services.statuses import USER_STATUSES, user_status
+
+    rows = db.execute(
+        select(Job.pipeline_state, func.count()).where(*where).group_by(Job.pipeline_state)  # type: ignore[arg-type]
+    ).all()
+    counts = dict.fromkeys(USER_STATUSES, 0)
+    for state, n in rows:
+        counts[user_status(state)] += n
+    return StatusCounts(**counts)
+
+
+def build_home(
+    db: Session, settings: Settings, now: datetime | None = None, data_dir: Path | None = None
+) -> HomeStatus:
+    """Facts only. Platform modes are dry-run until review/auto exist (Phase C / E)."""
+    from backend.core.config import live_execution_block
+
+    zone = ZoneInfo(settings.timezone)
+    local_now = (now or datetime.now(UTC)).astimezone(zone)
+    start_of_day = datetime.combine(local_now.date(), time.min, tzinfo=zone)
+    block = live_execution_block(settings)
+    from integrations.platforms.base import load_status
+
+    logins = load_status(data_dir or REPO_ROOT / "data")
+    platforms = [
+        PlatformMode(
+            platform="naukri",
+            mode="dry-run",
+            built=True,
+            note="Search and one-click Apply. Auto mode unlocks after a dry run and one "
+            "application you approve.",
+            login=(logins.get("naukri") or {}).get("state", "never"),
+            login_command="python -m backend.scripts.login naukri --test-search",
+        ),
+        PlatformMode(
+            platform="linkedin",
+            mode="dry-run",
+            built=True,
+            note="Search and Easy Apply. Auto mode unlocks after a dry run and one "
+            "application you approve.",
+            login=(logins.get("linkedin") or {}).get("state", "never"),
+            login_command="python -m backend.scripts.login linkedin --test-search",
+        ),
+        PlatformMode(
+            platform="instahyre",
+            mode="dry-run",
+            built=True,
+            note='Search and one-click "Apply now". Auto mode unlocks after a dry run and one '
+            "application you approve.",
+            login=(logins.get("instahyre") or {}).get("state", "never"),
+            login_command="python -m backend.scripts.login instahyre",
+        ),
+        PlatformMode(
+            platform="company_site",
+            mode="dry-run",
+            built=True,
+            note="Live submits still need your confirmation of each prepared form.",
+            login=None,
+        ),
+    ]
+    today = _status_counts(db, Job.updated_at >= start_of_day)
+    all_time = _status_counts(db)
+    return HomeStatus(
+        live_possible=block is None,
+        live_note=(
+            "LIVE submissions are switched ON (DEVELOPMENT_MODE=false, EXTERNAL_LIVE_ENABLED=true)."
+            if block is None
+            else block[1]
+        ),
+        platforms=platforms,
+        today=today,
+        all_time=all_time,
+        quick_links=QuickLinks(
+            needs_input=all_time.needs_input,
+            failed=all_time.failed,
+            manual=all_time.manual,
+            waiting_for_review=_waiting_for_review(db),
         ),
     )

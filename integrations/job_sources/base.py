@@ -136,6 +136,8 @@ class SourceTimeout(SourceError):
 #                         instant it could be (UTC-14h), so it can never look fresher than it is
 #   updated_only          the source gives only a last-updated time: posted_at stays None
 #                         (freshness UNKNOWN) and the update time goes to source_updated_at
+#   relative_upper_bound  an age like "2 days ago" (Naukri, LinkedIn), stored as the OLDEST
+#                         instant it can mean, so age is never understated
 #   unknown               no usable timestamp: freshness UNKNOWN
 TIMESTAMP_KINDS = (
     "published",
@@ -143,6 +145,7 @@ TIMESTAMP_KINDS = (
     "created",
     "published_tz_unknown",
     "updated_only",
+    "relative_upper_bound",
     "unknown",
 )
 

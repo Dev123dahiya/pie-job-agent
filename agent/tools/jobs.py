@@ -70,7 +70,7 @@ def brief(ctx: ToolContext, job: Job, now: datetime) -> JobBrief:
         location=job.location,
         posted_at=job.posted_at,
         freshness=compute_freshness(
-            job.posted_at, now, ctx.profile.preferences.maximum_application_age_hours
+            job.posted_at, now, ctx.profile.preferences.maximum_application_age_hours, job.source
         ).value,
         status=job.pipeline_state.value,
         salary=_salary(job),
